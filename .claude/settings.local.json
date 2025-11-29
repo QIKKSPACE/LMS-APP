@@ -5,7 +5,12 @@
       "Bash(netstat:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(j:*)"
+      "Bash(j:*)",
+      "Bash(tree:*)",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
