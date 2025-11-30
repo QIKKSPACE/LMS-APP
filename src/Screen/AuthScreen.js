@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
 
 // You'll need to install these packages:
@@ -47,6 +47,7 @@ const AuthScreen = () => {
       }));
     }
   };
+  
 
   const validateForm = () => {
     const newErrors = {};

@@ -1,13 +1,15 @@
 // src/context/AuthContext.jsx - OPTIMIZED VERSION
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo } from 'react';
-import { 
-  signupUser, 
-  loginUser, 
-  logoutUser, 
+import {
+  signupUser,
+  loginUser,
+  logoutUser,
   updateUserProfile,
   getUserProfile,
-  onAuthChange 
-} from '../services/authService';
+  onAuthChange,
+  USE_MOCK_AUTH,
+  setMockUser
+} from '../Services';
 
 const AuthContext = createContext();
 

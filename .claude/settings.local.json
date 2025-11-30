@@ -10,7 +10,8 @@
       "Bash(dir:*)",
       "Bash(npm install:*)",
       "Bash(npm uninstall:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run start)"
     ],
     "deny": [],
     "ask": []

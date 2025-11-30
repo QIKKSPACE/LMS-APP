@@ -1,9 +1,4 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { initializeAuth } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Firebase configuration - replace with your actual config
+// Firebase configuration - replace with your actual config from Firebase console
 const firebaseConfig = {
   apiKey: "your-api-key",
   authDomain: "your-project-id.firebaseapp.com",
@@ -13,13 +8,16 @@ const firebaseConfig = {
   appId: "1:123456789:web:abcdef123456"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Note: In React Native Firebase, initialization happens automatically
+// The firebaseConfig is used in google-services.json (Android) and GoogleService-Info.plist (iOS)
+// For now, we'll export the config for manual use if needed
 
-// Initialize Firestore
-export const db = getFirestore(app);
+export { firebaseConfig };
 
-// Initialize Auth with AsyncStorage for React Native (optional persistence)
-export const auth = initializeAuth(app);
+// Export common Firebase modules
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 
-export default app;
+export { auth, firestore };
+
+export default firebaseConfig;
