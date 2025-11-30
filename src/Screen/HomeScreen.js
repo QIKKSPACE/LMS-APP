@@ -134,7 +134,7 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
             {/* Header */}
             <View style={styles.headerContainer}>
               <View style={styles.headerTop}>
-                <Text style={styles.headerTitle}>Explore Courses</Text>
+                <Text style={styles.headerTitle}>Home</Text>
                 <Image
                   source={require('../assets/logo.png')}
                   style={styles.logo}
@@ -143,29 +143,29 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
               </View>
 
               {/* Badge - Courses Available */}
-              <View style={styles.badgeContainer}>
+              {/* <View style={styles.badgeContainer}>
                 <View style={styles.pulsing} />
                 <Text style={styles.badgeText}>
                   {courses.length} Courses Available
                 </Text>
-              </View>
+              </View> */}
 
               {/* Main Heading */}
-              <View style={styles.headingContainer}>
+              {/* <View style={styles.headingContainer}>
                 <Text style={styles.mainHeading}>
                   Discover Your Next
                 </Text>
                 <Text style={styles.highlightHeading}>
                   Learning Adventure ✨
                 </Text>
-              </View>
+              </View> */}
 
               {/* Subheading */}
-              <Text style={styles.subheading}>
+              {/* <Text style={styles.subheading}>
                 Explore our curated collection of premium courses designed to
                 transform your skills and elevate your knowledge. Start your
                 journey today!
-              </Text>
+              </Text> */}
 
               {/* Search Bar */}
               <View style={styles.searchContainer}>

@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 import LoginScreen from '../Screen/LoginScreen'
 import HomeSCreen from '../Screen/HomeScreen'
+import FilterTabs from '../Components/FilterTabs'
 const Stack = createNativeStackNavigator();
 
 const Stacknavigation = () => {
@@ -12,6 +13,7 @@ const Stacknavigation = () => {
                 screenOptions={{ headerShown: false }}>
                 <Stack.Screen name='Login' component={LoginScreen} />
                 <Stack.Screen name='Home' component={HomeSCreen} />
+                              <Stack.Screen name='Filter' component={FilterTabs} />
 
             </Stack.Navigator>
         </NavigationContainer>
