@@ -3,7 +3,43 @@
 
 // Mock user data storage
 let mockUser = null;
-let users = [];
+
+// Pre-populated test users for development
+let users = [
+  {
+    uid: 'test_user_1',
+    email: 'test@example.com',
+    name: 'Test User',
+    displayName: 'Test User',
+    password: 'password123',
+    mobileNumber: '+1234567890',
+    address: '123 Test Street',
+    createdAt: new Date('2024-01-01').toISOString(),
+    updatedAt: new Date('2024-01-01').toISOString()
+  },
+  {
+    uid: 'demo_user_1',
+    email: 'demo@lms.com',
+    name: 'Demo User',
+    displayName: 'Demo User',
+    password: 'demo123',
+    mobileNumber: '+0987654321',
+    address: '456 Demo Avenue',
+    createdAt: new Date('2024-01-15').toISOString(),
+    updatedAt: new Date('2024-01-15').toISOString()
+  },
+  {
+    uid: 'admin_user_1',
+    email: 'admin@lms.com',
+    name: 'Admin User',
+    displayName: 'Admin User',
+    password: 'admin123',
+    mobileNumber: '+1122334455',
+    address: '789 Admin Road',
+    createdAt: new Date('2024-01-01').toISOString(),
+    updatedAt: new Date('2024-01-01').toISOString()
+  }
+];
 
 export const mockSignupUser = async (name, email, password) => {
   console.log('Mock signup for:', email);
@@ -22,6 +58,7 @@ export const mockSignupUser = async (name, email, password) => {
     email: email,
     name: name,
     displayName: name,
+    password: password, // Store password (in real app, this would be hashed)
     mobileNumber: '',
     address: '',
     createdAt: new Date().toISOString(),
@@ -52,7 +89,14 @@ export const mockLoginUser = async (email, password) => {
     };
   }
 
-  // In mock, we don't validate password (or you could add simple validation)
+  // Validate password - store password hash with user
+  if (user.password !== password) {
+    return {
+      success: false,
+      error: 'Incorrect password'
+    };
+  }
+
   mockUser = user;
 
   console.log('Mock login successful');
@@ -143,6 +187,10 @@ export const getCurrentMockUser = () => {
 export const setMockUser = (user) => {
   mockUser = user;
   if (user && !users.find(u => u.uid === user.uid)) {
+    // Add default password for test user if not provided
+    if (!user.password) {
+      user.password = 'password123';
+    }
     users.push(user);
   }
 };
