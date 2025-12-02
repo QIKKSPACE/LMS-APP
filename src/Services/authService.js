@@ -1,282 +1,360 @@
-import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+// src/services/authService.js
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut,
+  onAuthStateChanged,
+  updateProfile as updateFirebaseProfile
+} from "firebase/auth";
+import { 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc,
+  serverTimestamp 
+} from "firebase/firestore";
+import { auth, db } from "../firebase";
 
-// Sign up function
+/**
+ * Sign up a new user with email and password
+ * Also creates user profile in Firestore Database
+ */
 export const signupUser = async (name, email, password) => {
   try {
-    console.log('Creating user account...');
+    // Validate inputs
+    if (!name || !email || !password) {
+      return {
+        success: false,
+        error: 'Please fill in all fields'
+      };
+    }
 
-    // Create user with email and password
-    const userCredential = await auth().createUserWithEmailAndPassword(email, password);
+    if (password.length < 6) {
+      return {
+        success: false,
+        error: 'Password must be at least 6 characters long'
+      };
+    }
+
+    console.log('Creating user with email:', email);
+
+    // Create user in Firebase Authentication
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // Update user profile with display name
-    await user.updateProfile({
+    console.log('User created successfully:', user.uid);
+
+    // Update display name in Firebase Auth
+    await updateFirebaseProfile(user, {
       displayName: name
     });
 
-    // Create user profile data
-    const userData = {
+    // Create user profile in Firestore Database
+    const userProfile = {
       uid: user.uid,
-      email: user.email,
       name: name,
-      displayName: name,
+      email: email,
       mobileNumber: '',
       address: '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     };
 
-    console.log('User account created successfully');
+    // Store in Firestore at collection: users, document: userId
+    await setDoc(doc(db, 'users', user.uid), userProfile);
 
-    return {
-      success: true,
-      user: userData
+    console.log('User profile created in Firestore');
+
+    // Return profile with ISO string timestamps for consistency
+    return { 
+      success: true, 
+      user: {
+        ...userProfile,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
     };
-
   } catch (error) {
-    console.error('Signup error:', error);
-
-    let errorMessage = 'An error occurred during signup';
-
-    switch (error.code) {
-      case 'auth/email-already-in-use':
-        errorMessage = 'This email is already registered';
-        break;
-      case 'auth/weak-password':
-        errorMessage = 'Password is too weak';
-        break;
-      case 'auth/invalid-email':
-        errorMessage = 'Invalid email address';
-        break;
-      case 'auth/network-request-failed':
-        errorMessage = 'Network error. Please check your connection';
-        break;
-      default:
-        errorMessage = error.message || errorMessage;
-    }
-
-    return {
-      success: false,
-      error: errorMessage
+    console.error("Signup error:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    
+    return { 
+      success: false, 
+      error: getErrorMessage(error.code) 
     };
   }
 };
 
-// Login function
+/**
+ * Sign in existing user with email and password
+ */
 export const loginUser = async (email, password) => {
   try {
-    console.log('Signing in user...');
+    // Validate inputs
+    if (!email || !password) {
+      return {
+        success: false,
+        error: 'Please enter email and password'
+      };
+    }
 
-    const userCredential = await auth().signInWithEmailAndPassword(email, password);
+    // Trim whitespace from email and password
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    console.log('Login attempt for:', trimmedEmail);
+
+    // Sign in with Firebase Authentication
+    const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
     const user = userCredential.user;
 
-    // Create user profile data
-    const userData = {
-      uid: user.uid,
-      email: user.email,
-      name: user.displayName || user.email.split('@')[0],
-      displayName: user.displayName || user.email.split('@')[0],
-      mobileNumber: '',
-      address: '',
-      createdAt: user.metadata.creationTime || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    console.log('User signed in successfully:', user.uid);
 
-    console.log('User signed in successfully');
+    // Fetch user profile from Firestore
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDocSnap = await getDoc(userDocRef);
 
-    return {
-      success: true,
-      user: userData
-    };
-
-  } catch (error) {
-    console.error('Login error:', error);
-
-    let errorMessage = 'An error occurred during login';
-
-    switch (error.code) {
-      case 'auth/user-not-found':
-        errorMessage = 'No account found with this email';
-        break;
-      case 'auth/wrong-password':
-        errorMessage = 'Incorrect password';
-        break;
-      case 'auth/invalid-email':
-        errorMessage = 'Invalid email address';
-        break;
-      case 'auth/user-disabled':
-        errorMessage = 'This account has been disabled';
-        break;
-      case 'auth/network-request-failed':
-        errorMessage = 'Network error. Please check your connection';
-        break;
-      default:
-        errorMessage = error.message || errorMessage;
+    if (userDocSnap.exists()) {
+      console.log('User profile found in Firestore');
+      const userProfile = userDocSnap.data();
+      
+      // Convert Firestore timestamps to ISO strings
+      return { 
+        success: true, 
+        user: {
+          ...userProfile,
+          createdAt: userProfile.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updatedAt: userProfile.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+        }
+      };
+    } else {
+      console.log('User profile not found, creating new one');
+      // Profile doesn't exist, create one
+      const userProfile = {
+        uid: user.uid,
+        name: user.displayName || trimmedEmail.split('@')[0],
+        email: user.email,
+        mobileNumber: '',
+        address: '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      
+      await setDoc(doc(db, 'users', user.uid), userProfile);
+      
+      return { 
+        success: true, 
+        user: {
+          ...userProfile,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      };
     }
-
-    return {
-      success: false,
-      error: errorMessage
+  } catch (error) {
+    console.error("Login error:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    
+    return { 
+      success: false, 
+      error: getErrorMessage(error.code) 
     };
   }
 };
 
-// Logout function
+/**
+ * Sign out current user
+ */
 export const logoutUser = async () => {
   try {
-    console.log('Signing out user...');
-
-    await auth().signOut();
-
+    await signOut(auth);
     console.log('User signed out successfully');
-
-    return {
-      success: true
-    };
-
+    return { success: true };
   } catch (error) {
-    console.error('Logout error:', error);
-
-    return {
-      success: false,
-      error: error.message || 'An error occurred during logout'
+    console.error("Logout error:", error);
+    return { 
+      success: false, 
+      error: "Failed to logout" 
     };
   }
 };
 
-// Update user profile function
-export const updateUserProfile = async (userId, userData) => {
+/**
+ * Update user profile in Firestore
+ */
+export const updateUserProfile = async (userId, updates) => {
   try {
-    console.log('Updating user profile...');
-
-    const user = auth().currentUser;
-
-    if (user && user.uid === userId) {
-      // Update display name if provided
-      if (userData.name || userData.displayName) {
-        await user.updateProfile({
-          displayName: userData.name || userData.displayName
-        });
-      }
-
-      // Update email if provided and different
-      if (userData.email && userData.email !== user.email) {
-        await user.updateEmail(userData.email);
-      }
-
-      // Create updated profile data
-      const updatedProfile = {
-        uid: user.uid,
-        email: userData.email || user.email,
-        name: userData.name || user.displayName || user.email.split('@')[0],
-        displayName: userData.name || user.displayName || user.email.split('@')[0],
-        mobileNumber: userData.mobileNumber || '',
-        address: userData.address || '',
-        createdAt: userData.createdAt || user.metadata.creationTime || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      console.log('User profile updated successfully');
-
+    if (!userId) {
+      console.error('Update failed: User ID is required');
       return {
-        success: true,
-        user: updatedProfile
+        success: false,
+        error: 'User ID is required'
+      };
+    }
+
+    if (!updates || Object.keys(updates).length === 0) {
+      console.error('Update failed: No updates provided');
+      return {
+        success: false,
+        error: 'No updates provided'
+      };
+    }
+
+    console.log('Updating profile for user:', userId);
+    console.log('Updates to apply:', updates);
+
+    const userDocRef = doc(db, 'users', userId);
+    
+    // First check if user exists
+    const userDocSnap = await getDoc(userDocRef);
+    if (!userDocSnap.exists()) {
+      console.error('User not found in Firestore');
+      return {
+        success: false,
+        error: 'User profile not found'
+      };
+    }
+
+    // Add updatedAt timestamp
+    const updateData = {
+      ...updates,
+      updatedAt: serverTimestamp()
+    };
+
+    console.log('Applying updates to Firestore...');
+    await updateDoc(userDocRef, updateData);
+
+    console.log('Profile updated successfully in Firestore');
+
+    // Fetch updated profile
+    const updatedDocSnap = await getDoc(userDocRef);
+    
+    if (updatedDocSnap.exists()) {
+      const updatedUser = updatedDocSnap.data();
+      console.log('Fetched updated user profile:', updatedUser);
+      
+      // Convert Firestore timestamps to ISO strings
+      return { 
+        success: true, 
+        user: {
+          ...updatedUser,
+          createdAt: updatedUser.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updatedAt: updatedUser.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+        }
       };
     } else {
-      throw new Error('User not authenticated or mismatched user ID');
+      console.error('Failed to fetch updated profile');
+      return {
+        success: false,
+        error: 'Failed to fetch updated profile'
+      };
     }
-
   } catch (error) {
-    console.error('Update profile error:', error);
-
-    let errorMessage = 'An error occurred while updating profile';
-
-    switch (error.code) {
-      case 'auth/email-already-in-use':
-        errorMessage = 'This email is already registered';
-        break;
-      case 'auth/invalid-email':
-        errorMessage = 'Invalid email address';
-        break;
-      case 'auth/requires-recent-login':
-        errorMessage = 'Please log in again to update your profile';
-        break;
-      case 'auth/network-request-failed':
-        errorMessage = 'Network error. Please check your connection';
-        break;
-      default:
-        errorMessage = error.message || errorMessage;
-    }
-
-    return {
-      success: false,
-      error: errorMessage
+    console.error("Update profile error:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    
+    return { 
+      success: false, 
+      error: `Failed to update profile: ${error.message}` 
     };
   }
 };
 
-// Get user profile function
+/**
+ * Get user profile from Firestore
+ */
 export const getUserProfile = async (userId) => {
   try {
-    console.log('Getting user profile...');
-
-    const user = auth().currentUser;
-
-    if (user && user.uid === userId) {
-      const userData = {
-        uid: user.uid,
-        email: user.email,
-        name: user.displayName || user.email.split('@')[0],
-        displayName: user.displayName || user.email.split('@')[0],
-        mobileNumber: '',
-        address: '',
-        createdAt: user.metadata.creationTime || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      console.log('User profile retrieved successfully');
-
+    if (!userId) {
       return {
-        success: true,
-        user: userData
+        success: false,
+        error: 'User ID is required'
       };
-    } else {
-      throw new Error('User not authenticated or mismatched user ID');
     }
 
-  } catch (error) {
-    console.error('Get profile error:', error);
+    console.log('Fetching profile for user:', userId);
 
-    return {
-      success: false,
-      error: error.message || 'Failed to get user profile'
+    const userDocRef = doc(db, 'users', userId);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (userDocSnap.exists()) {
+      console.log('User profile fetched successfully');
+      const userData = userDocSnap.data();
+      
+      // Convert Firestore timestamps to ISO strings
+      return { 
+        success: true, 
+        user: {
+          ...userData,
+          createdAt: userData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updatedAt: userData.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+        }
+      };
+    } else {
+      console.log('User profile not found in Firestore');
+      return { 
+        success: false, 
+        error: "User profile not found" 
+      };
+    }
+  } catch (error) {
+    console.error("Get profile error:", error);
+    return { 
+      success: false, 
+      error: "Failed to fetch profile" 
     };
   }
 };
 
-// Auth state change listener
+/**
+ * Listen to authentication state changes
+ */
 export const onAuthChange = (callback) => {
-  return auth().onAuthStateChanged((firebaseUser) => {
-    console.log('Auth state changed:', firebaseUser ? 'User logged in' : 'User logged out');
-
+  return onAuthStateChanged(auth, async (firebaseUser) => {
     if (firebaseUser) {
-      // User is signed in
-      const userData = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-        displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-        mobileNumber: '',
-        address: '',
-        createdAt: firebaseUser.metadata.creationTime || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      callback(userData);
+      console.log('Auth state changed: User signed in', firebaseUser.uid);
     } else {
-      // User is signed out
-      callback(null);
+      console.log('Auth state changed: User signed out');
     }
+    callback(firebaseUser);
   });
+};
+
+/**
+ * Convert Firebase error codes to user-friendly messages
+ */
+const getErrorMessage = (errorCode) => {
+  switch (errorCode) {
+    case 'auth/email-already-in-use':
+      return 'This email is already registered';
+    case 'auth/invalid-email':
+      return 'Invalid email address';
+    case 'auth/operation-not-allowed':
+      return 'Operation not allowed. Please contact support.';
+    case 'auth/weak-password':
+      return 'Password should be at least 6 characters';
+    case 'auth/user-disabled':
+      return 'This account has been disabled';
+    case 'auth/user-not-found':
+      return 'Invalid email or password';
+    case 'auth/wrong-password':
+      return 'Invalid email or password';
+    case 'auth/invalid-credential':
+      return 'Invalid email or password. Please check your credentials.';
+    case 'auth/too-many-requests':
+      return 'Too many failed attempts. Please try again later';
+    case 'auth/network-request-failed':
+      return 'Network error. Please check your internet connection';
+    case 'auth/requires-recent-login':
+      return 'Please log in again to perform this action';
+    case 'auth/missing-password':
+      return 'Please enter your password';
+    case 'auth/invalid-login-credentials':
+      return 'Invalid email or password';
+    default:
+      return `Authentication error. Please try again.`;
+  }
 };
