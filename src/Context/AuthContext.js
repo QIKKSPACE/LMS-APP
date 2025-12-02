@@ -1,5 +1,6 @@
 // src/context/AuthContext.jsx - OPTIMIZED VERSION
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   signupUser,
   loginUser,
@@ -39,7 +40,7 @@ export const AuthProvider = ({ children }) => {
           console.log('Firebase user detected:', firebaseUser.uid);
           
           // OPTIMIZATION: Check if we already have this user's data
-          const cachedUser = sessionStorage.getItem(`user_${firebaseUser.uid}`);
+          const cachedUser = await AsyncStorage.getItem(`user_${firebaseUser.uid}`);
           if (cachedUser) {
             console.log('Using cached user profile');
             setUser(JSON.parse(cachedUser));
@@ -56,7 +57,7 @@ export const AuthProvider = ({ children }) => {
             const userData = result.user;
             setUser(userData);
             // Cache user data
-            sessionStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(userData));
+            await AsyncStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(userData));
           } else if (isMounted) {
             console.log('Creating basic user profile');
             const newProfile = {
@@ -69,12 +70,12 @@ export const AuthProvider = ({ children }) => {
               updatedAt: new Date().toISOString()
             };
             setUser(newProfile);
-            sessionStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(newProfile));
+            await AsyncStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(newProfile));
           }
         } else {
           console.log('No user signed in');
           setUser(null);
-          sessionStorage.clear(); // Clear all cached data
+          await AsyncStorage.clear(); // Clear all cached data
         }
       } catch (error) {
         console.error('Error in auth state change:', error);
@@ -108,7 +109,7 @@ export const AuthProvider = ({ children }) => {
         console.log('Signup successful');
         setUser(result.user);
         // Cache immediately
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
         return { success: true, user: result.user };
       } else {
         console.error('Signup failed:', result.error);
@@ -137,7 +138,7 @@ export const AuthProvider = ({ children }) => {
         console.log('Login successful');
         setUser(result.user);
         // Cache immediately
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
         return { success: true, user: result.user };
       } else {
         console.error('Login failed:', result.error);
@@ -165,7 +166,7 @@ export const AuthProvider = ({ children }) => {
       if (result.success) {
         console.log('Logout successful');
         setUser(null);
-        sessionStorage.clear();
+        await AsyncStorage.clear();
       }
       
       setIsLoading(false);
@@ -191,7 +192,7 @@ export const AuthProvider = ({ children }) => {
         console.log('Profile update successful');
         setUser(result.user);
         // Update cache
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
         return { success: true, user: result.user };
       } else {
         const errorMsg = result?.error || 'Failed to update profile';

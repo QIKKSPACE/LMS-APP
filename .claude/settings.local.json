@@ -11,7 +11,10 @@
       "Bash(npm install:*)",
       "Bash(npm uninstall:*)",
       "Bash(find:*)",
-      "Bash(npm run start)"
+      "Bash(npm run start)",
+      "Bash(npx react-native run-android:*)",
+      "Bash(node:*)",
+      "Bash(del:*)"
     ],
     "deny": [],
     "ask": []
