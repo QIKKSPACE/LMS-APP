@@ -26,6 +26,8 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const flatListRef = React.useRef(null);
   const scrollY = new Animated.Value(0);
 
   // Fetch courses from Firestore
@@ -127,6 +129,7 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   return (
     <SafeAreaView style={styles.container}>
       <FlatList
+        ref={flatListRef}
         data={filteredCourses}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
@@ -262,19 +265,27 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
         contentContainerStyle={styles.listContent}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
+          {
+            useNativeDriver: false,
+            listener: (event) => {
+              const offsetY = event.nativeEvent.contentOffset.y;
+              setShowScrollTop(offsetY > height * 0.5);
+            }
+          }
         )}
       />
 
       {/* Scroll to Top Button */}
-      <TouchableOpacity
-        style={styles.scrollToTopButton}
-        onPress={() => {
-          // Scroll to top logic
-        }}
-      >
-        <Text style={styles.scrollToTopText}>↑</Text>
-      </TouchableOpacity>
+      {showScrollTop && (
+        <TouchableOpacity
+          style={styles.scrollToTopButton}
+          onPress={() => {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }}
+        >
+          <Text style={styles.scrollToTopText}>↑</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 };
@@ -285,7 +296,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f4f6',
   },
   listContent: {
-    paddingBottom: 80,
+    paddingBottom: 100, // Increased padding to account for bottom tab navigation
   },
 
   // Loading & Error States
@@ -487,7 +498,7 @@ const styles = StyleSheet.create({
   // Scroll to Top Button
   scrollToTopButton: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 90, // Increased bottom padding to avoid overlap with tab navigation
     right: 24,
     width: 56,
     height: 56,
@@ -500,6 +511,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+    zIndex: 1000, // Ensure button stays on top
   },
   scrollToTopText: {
     fontSize: 24,
