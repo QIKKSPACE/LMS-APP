@@ -347,6 +347,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 12,
+    marginVertical:20
   },
   headerTop: {
     flexDirection: 'row',
@@ -355,13 +356,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 30,
     fontWeight: '700',
     color: '#1a1a1a',
   },
   logo: {
-    width: 48,
-    height: 48,
+    width: 58,
+    height: 58,
     borderRadius: 24,
   },
 
@@ -427,10 +428,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     marginBottom: 20,
+    height: 54,
+    width: '100%',
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 16,
     color: '#333',
     paddingVertical: 0,
   },
