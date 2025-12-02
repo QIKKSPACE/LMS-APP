@@ -13,6 +13,7 @@ import {
   TextInput,
   SafeAreaView,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { Animated } from 'react-native';
 import { getAllCourses } from '../Services/courseService';
@@ -184,16 +185,19 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
                     onPress={handleClearSearch}
                     style={styles.clearButton}
                   >
-                    <Text style={styles.clearButtonText}>✕</Text>
+                    <Icon name="clear" size={40} color="#999" />
                   </TouchableOpacity>
                 ) : (
-                  <Text style={styles.searchIcon}>🔍</Text>
+                  <Icon name="search" size={40} color="#999" style={styles.searchIcon} />
                 )}
               </View>
 
               {/* Section title and results count */}
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Featured Courses 🔥</Text>
+                <View style={styles.sectionTitleContainer}>
+                  <Icon name="local-fire-department" size={24} color="#DC2626" />
+                  <Text style={styles.sectionTitle}>Featured Courses</Text>
+                </View>
                 {searchQuery && (
                   <Text style={styles.resultsCount}>
                     {filteredCourses.length} result
@@ -206,7 +210,9 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
             {/* No Courses Message */}
             {availableCourses.length === 0 && (
               <View style={styles.emptyContainer}>
-                <Text style={styles.emptyEmoji}>📚</Text>
+                <View style={styles.emptyIconContainer}>
+                  <Icon name="menu-book" size={48} color="#999" />
+                </View>
                 <Text style={styles.emptyTitle}>
                   No courses available to buy
                 </Text>
@@ -220,7 +226,9 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
             {filteredCourses.length === 0 &&
               availableCourses.length > 0 && (
                 <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyEmoji}>🔍</Text>
+                  <View style={styles.emptyIconContainer}>
+                    <Icon name="search-off" size={40} color="#999" />
+                  </View>
                   <Text style={styles.emptyTitle}>No courses found</Text>
                   <Text style={styles.emptySubtitle}>
                     Try adjusting your search terms
@@ -443,11 +451,7 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     paddingHorizontal: 8,
-  },
-  clearButtonText: {
-    fontSize: 18,
-    color: '#999',
-    fontWeight: 'bold',
+    paddingVertical: 4,
   },
 
   // Section Header
@@ -456,6 +460,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   sectionTitle: {
     fontSize: 20,
@@ -473,8 +482,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
   },
-  emptyEmoji: {
-    fontSize: 60,
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
   emptyTitle: {
