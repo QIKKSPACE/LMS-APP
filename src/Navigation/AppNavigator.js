@@ -7,6 +7,7 @@ import { useAuth } from '../Context/AuthContext';
 // Import Screens
 import AuthScreen from '../Screen/AuthScreen';
 import TabNavigation from './Tabnavigation';
+import BuyCourseDetailScreen from '../Screen/BuyCourseDetail';
 
 const Stack = createNativeStackNavigator();
 
@@ -37,7 +38,14 @@ const AppNavigator = () => {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           // User is authenticated, show tab navigation
-          <Stack.Screen name="MainApp" component={TabNavigation} />
+          <>
+            <Stack.Screen name="MainApp" component={TabNavigation} />
+            <Stack.Screen
+              name="BuyCourseDetail"
+              component={BuyCourseDetailScreen}
+              options={{ headerShown: false }}
+            />
+          </>
         ) : (
           // User is not authenticated, show auth screen
           <Stack.Screen name="Auth" component={AuthScreen} />

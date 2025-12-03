@@ -40,6 +40,12 @@ const CourseCard = memo(
       }
     }, [courseId, onCourseClick, navigation]);
 
+    const handleBuyNow = useCallback(() => {
+      if (navigation) {
+        navigation.navigate('BuyCourseDetail', { courseId });
+      }
+    }, [courseId, navigation]);
+
     const getStatusColor = useCallback((stat) => {
       switch (stat) {
         case 'COMPLETED':
@@ -244,19 +250,24 @@ const CourseCard = memo(
                 <Text style={styles.priceLabel}>Price</Text>
                 <Text style={styles.priceValue}>₹{price}</Text>
               </View>
-              <LinearGradient
-                colors={['#dc2626', '#f43f5e', '#be123c']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.buyButton}
+              <TouchableOpacity
+                onPress={handleBuyNow}
+                activeOpacity={0.8}
               >
-                <MaterialCommunityIcons
-                  name="shopping-outline"
-                  size={18}
-                  color="#fff"
-                />
-                <Text style={styles.buyButtonText}>Buy Now</Text>
-              </LinearGradient>
+                <LinearGradient
+                  colors={['#dc2626', '#f43f5e', '#be123c']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.buyButton}
+                >
+                  <MaterialCommunityIcons
+                    name="shopping-outline"
+                    size={18}
+                    color="#fff"
+                  />
+                  <Text style={styles.buyButtonText}>Buy Now</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           )}
         </View>
