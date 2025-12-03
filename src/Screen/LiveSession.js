@@ -12,7 +12,7 @@ import {
   Animated,
   RefreshControl,
 } from 'react-native';
-import { collection, getDocs } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
 import { db } from '../firebase';
 
 const { width } = Dimensions.get('window');
@@ -51,8 +51,7 @@ const LiveSession = () => {
   const fetchLiveSessions = async () => {
     try {
       setLoading(true);
-      const coursesRef = collection(db, 'courses');
-      const snapshot = await getDocs(coursesRef);
+      const snapshot = await db.collection('courses').get();
       
       const allSessions = [];
       

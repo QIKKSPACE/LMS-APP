@@ -1,19 +1,7 @@
 // src/services/authService.js
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut,
-  onAuthStateChanged,
-  updateProfile as updateFirebaseProfile
-} from "firebase/auth";
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc,
-  serverTimestamp 
-} from "firebase/firestore";
-import { auth, db } from "../firebase";
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
+import { authInstance } from "../firebase";
 
 /**
  * Sign up a new user with email and password
@@ -39,13 +27,13 @@ export const signupUser = async (name, email, password) => {
     console.log('Creating user with email:', email);
 
     // Create user in Firebase Authentication
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const userCredential = await auth().createUserWithEmailAndPassword(email, password);
     const user = userCredential.user;
 
     console.log('User created successfully:', user.uid);
 
     // Update display name in Firebase Auth
-    await updateFirebaseProfile(user, {
+    await user.updateProfile({
       displayName: name
     });
 
@@ -56,18 +44,18 @@ export const signupUser = async (name, email, password) => {
       email: email,
       mobileNumber: '',
       address: '',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp()
     };
 
     // Store in Firestore at collection: users, document: userId
-    await setDoc(doc(db, 'users', user.uid), userProfile);
+    await firestore().collection('users').doc(user.uid).set(userProfile);
 
     console.log('User profile created in Firestore');
 
     // Return profile with ISO string timestamps for consistency
-    return { 
-      success: true, 
+    return {
+      success: true,
       user: {
         ...userProfile,
         createdAt: new Date().toISOString(),
@@ -78,10 +66,10 @@ export const signupUser = async (name, email, password) => {
     console.error("Signup error:", error);
     console.error("Error code:", error.code);
     console.error("Error message:", error.message);
-    
-    return { 
-      success: false, 
-      error: getErrorMessage(error.code) 
+
+    return {
+      success: false,
+      error: getErrorMessage(error.code)
     };
   }
 };
@@ -106,22 +94,21 @@ export const loginUser = async (email, password) => {
     console.log('Login attempt for:', trimmedEmail);
 
     // Sign in with Firebase Authentication
-    const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
+    const userCredential = await auth().signInWithEmailAndPassword(trimmedEmail, trimmedPassword);
     const user = userCredential.user;
 
     console.log('User signed in successfully:', user.uid);
 
     // Fetch user profile from Firestore
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDocSnap = await getDoc(userDocRef);
+    const userDoc = await firestore().collection('users').doc(user.uid).get();
 
-    if (userDocSnap.exists()) {
+    if (userDoc.exists) {
       console.log('User profile found in Firestore');
-      const userProfile = userDocSnap.data();
-      
+      const userProfile = userDoc.data();
+
       // Convert Firestore timestamps to ISO strings
-      return { 
-        success: true, 
+      return {
+        success: true,
         user: {
           ...userProfile,
           createdAt: userProfile.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
@@ -137,14 +124,14 @@ export const loginUser = async (email, password) => {
         email: user.email,
         mobileNumber: '',
         address: '',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp()
       };
-      
-      await setDoc(doc(db, 'users', user.uid), userProfile);
-      
-      return { 
-        success: true, 
+
+      await firestore().collection('users').doc(user.uid).set(userProfile);
+
+      return {
+        success: true,
         user: {
           ...userProfile,
           createdAt: new Date().toISOString(),
@@ -156,10 +143,10 @@ export const loginUser = async (email, password) => {
     console.error("Login error:", error);
     console.error("Error code:", error.code);
     console.error("Error message:", error.message);
-    
-    return { 
-      success: false, 
-      error: getErrorMessage(error.code) 
+
+    return {
+      success: false,
+      error: getErrorMessage(error.code)
     };
   }
 };
@@ -169,14 +156,14 @@ export const loginUser = async (email, password) => {
  */
 export const logoutUser = async () => {
   try {
-    await signOut(auth);
+    await auth().signOut();
     console.log('User signed out successfully');
     return { success: true };
   } catch (error) {
     console.error("Logout error:", error);
-    return { 
-      success: false, 
-      error: "Failed to logout" 
+    return {
+      success: false,
+      error: "Failed to logout"
     };
   }
 };
@@ -205,11 +192,11 @@ export const updateUserProfile = async (userId, updates) => {
     console.log('Updating profile for user:', userId);
     console.log('Updates to apply:', updates);
 
-    const userDocRef = doc(db, 'users', userId);
-    
+    const userDocRef = firestore().collection('users').doc(userId);
+
     // First check if user exists
-    const userDocSnap = await getDoc(userDocRef);
-    if (!userDocSnap.exists()) {
+    const userDoc = await userDocRef.get();
+    if (!userDoc.exists) {
       console.error('User not found in Firestore');
       return {
         success: false,
@@ -220,24 +207,24 @@ export const updateUserProfile = async (userId, updates) => {
     // Add updatedAt timestamp
     const updateData = {
       ...updates,
-      updatedAt: serverTimestamp()
+      updatedAt: firestore.FieldValue.serverTimestamp()
     };
 
     console.log('Applying updates to Firestore...');
-    await updateDoc(userDocRef, updateData);
+    await userDocRef.update(updateData);
 
     console.log('Profile updated successfully in Firestore');
 
     // Fetch updated profile
-    const updatedDocSnap = await getDoc(userDocRef);
-    
-    if (updatedDocSnap.exists()) {
-      const updatedUser = updatedDocSnap.data();
+    const updatedDoc = await userDocRef.get();
+
+    if (updatedDoc.exists) {
+      const updatedUser = updatedDoc.data();
       console.log('Fetched updated user profile:', updatedUser);
-      
+
       // Convert Firestore timestamps to ISO strings
-      return { 
-        success: true, 
+      return {
+        success: true,
         user: {
           ...updatedUser,
           createdAt: updatedUser.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
@@ -255,10 +242,10 @@ export const updateUserProfile = async (userId, updates) => {
     console.error("Update profile error:", error);
     console.error("Error code:", error.code);
     console.error("Error message:", error.message);
-    
-    return { 
-      success: false, 
-      error: `Failed to update profile: ${error.message}` 
+
+    return {
+      success: false,
+      error: `Failed to update profile: ${error.message}`
     };
   }
 };
@@ -277,16 +264,15 @@ export const getUserProfile = async (userId) => {
 
     console.log('Fetching profile for user:', userId);
 
-    const userDocRef = doc(db, 'users', userId);
-    const userDocSnap = await getDoc(userDocRef);
+    const userDoc = await firestore().collection('users').doc(userId).get();
 
-    if (userDocSnap.exists()) {
+    if (userDoc.exists) {
       console.log('User profile fetched successfully');
-      const userData = userDocSnap.data();
-      
+      const userData = userDoc.data();
+
       // Convert Firestore timestamps to ISO strings
-      return { 
-        success: true, 
+      return {
+        success: true,
         user: {
           ...userData,
           createdAt: userData.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
@@ -295,16 +281,16 @@ export const getUserProfile = async (userId) => {
       };
     } else {
       console.log('User profile not found in Firestore');
-      return { 
-        success: false, 
-        error: "User profile not found" 
+      return {
+        success: false,
+        error: "User profile not found"
       };
     }
   } catch (error) {
     console.error("Get profile error:", error);
-    return { 
-      success: false, 
-      error: "Failed to fetch profile" 
+    return {
+      success: false,
+      error: "Failed to fetch profile"
     };
   }
 };
@@ -313,7 +299,7 @@ export const getUserProfile = async (userId) => {
  * Listen to authentication state changes
  */
 export const onAuthChange = (callback) => {
-  return onAuthStateChanged(auth, async (firebaseUser) => {
+  return auth().onAuthStateChanged(async (firebaseUser) => {
     if (firebaseUser) {
       console.log('Auth state changed: User signed in', firebaseUser.uid);
     } else {

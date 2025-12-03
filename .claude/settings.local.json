@@ -14,7 +14,8 @@
       "Bash(npm run start)",
       "Bash(npx react-native run-android:*)",
       "Bash(node:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(npx react-native doctor:*)"
     ],
     "deny": [],
     "ask": []

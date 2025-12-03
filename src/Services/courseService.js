@@ -1,17 +1,5 @@
 // src/services/courseService.js
-import { 
-    collection, 
-    getDocs, 
-    doc, 
-    getDoc,
-    query,
-    where,
-    setDoc,
-    updateDoc,
-    arrayUnion,
-    arrayRemove,
-    serverTimestamp 
-  } from 'firebase/firestore';
+import firestore from '@react-native-firebase/firestore';
   import { db } from '../firebase';
   
   /**
@@ -126,14 +114,13 @@ import {
    */
   export const getAllCourses = async () => {
     try {
-      const coursesRef = collection(db, 'courses');
-      const snapshot = await getDocs(coursesRef);
-      
+      const snapshot = await db.collection('courses').get();
+
       const courses = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-  
+
       return courses.map(course => convertCourseFormat(course));
     } catch (error) {
       console.error('Error fetching courses:', error);
@@ -146,10 +133,9 @@ import {
    */
   export const getCourseById = async (courseId) => {
     try {
-      const courseRef = doc(db, 'courses', courseId);
-      const courseSnap = await getDoc(courseRef);
-      
-      if (courseSnap.exists()) {
+      const courseSnap = await db.collection('courses').doc(courseId).get();
+
+      if (courseSnap.exists) {
         return convertCourseFormat({
           id: courseSnap.id,
           ...courseSnap.data()
@@ -168,14 +154,12 @@ import {
   export const getUserCourses = async (userId) => {
     try {
       // Get user enrollments
-      const enrollmentsRef = collection(db, 'enrollments');
-      const q = query(enrollmentsRef, where('userId', '==', userId));
-      const enrollmentSnap = await getDocs(q);
-      
+      const enrollmentSnap = await db.collection('enrollments').where('userId', '==', userId).get();
+
       if (enrollmentSnap.empty) {
         return [];
       }
-  
+
       const enrollments = {};
       enrollmentSnap.docs.forEach(doc => {
         enrollments[doc.data().courseId] = {
@@ -183,11 +167,10 @@ import {
           enrollmentId: doc.id
         };
       });
-  
+
       // Get all courses
-      const coursesRef = collection(db, 'courses');
-      const coursesSnap = await getDocs(coursesRef);
-      
+      const coursesSnap = await db.collection('courses').get();
+
       // Filter and convert enrolled courses
       const userCourses = coursesSnap.docs
         .filter(doc => enrollments[doc.id])
@@ -196,7 +179,7 @@ import {
           const enrollment = enrollments[doc.id];
           return convertCourseFormat(courseData, enrollment);
         });
-  
+
       return userCourses;
     } catch (error) {
       console.error('Error fetching user courses:', error);
@@ -209,19 +192,19 @@ import {
    */
   export const enrollInCourse = async (userId, courseId, expiryDate) => {
     try {
-      const enrollmentRef = doc(collection(db, 'enrollments'));
-      
-      await setDoc(enrollmentRef, {
+      const enrollmentRef = db.collection('enrollments').doc();
+
+      await enrollmentRef.set({
         userId,
         courseId,
-        enrolledAt: serverTimestamp(),
+        enrolledAt: firestore.FieldValue.serverTimestamp(),
         expiryDate: expiryDate || getDefaultExpiryDate(),
         progress: 0,
         completedLectures: [],
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp()
       });
-  
+
       return { success: true, enrollmentId: enrollmentRef.id };
     } catch (error) {
       console.error('Error enrolling in course:', error);
@@ -235,34 +218,32 @@ import {
   export const updateCourseProgress = async (userId, courseId, completedLectures) => {
     try {
       // Find enrollment document
-      const enrollmentsRef = collection(db, 'enrollments');
-      const q = query(
-        enrollmentsRef, 
-        where('userId', '==', userId),
-        where('courseId', '==', courseId)
-      );
-      const enrollmentSnap = await getDocs(q);
-      
+      const enrollmentSnap = await db.collection('enrollments')
+        .where('userId', '==', userId)
+        .where('courseId', '==', courseId)
+        .get();
+
       if (enrollmentSnap.empty) {
         throw new Error('Enrollment not found');
       }
-  
+
       const enrollmentDoc = enrollmentSnap.docs[0];
-      
+      const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
+
       // Get course to calculate progress
       const course = await getCourseById(courseId);
-      const totalLectures = course.sections.reduce((sum, section) => 
+      const totalLectures = course.sections.reduce((sum, section) =>
         sum + section.lecturesList.length, 0
       );
-      
+
       const progress = Math.round((completedLectures.length / totalLectures) * 100);
-  
-      await updateDoc(doc(db, 'enrollments', enrollmentDoc.id), {
+
+      await enrollmentRef.update({
         completedLectures,
         progress,
-        updatedAt: serverTimestamp()
+        updatedAt: firestore.FieldValue.serverTimestamp()
       });
-  
+
       return { success: true };
     } catch (error) {
       console.error('Error updating progress:', error);
@@ -275,45 +256,44 @@ import {
    */
   export const toggleLectureCompletion = async (userId, courseId, lectureId) => {
     try {
-      const enrollmentsRef = collection(db, 'enrollments');
-      const q = query(
-        enrollmentsRef, 
-        where('userId', '==', userId),
-        where('courseId', '==', courseId)
-      );
-      const enrollmentSnap = await getDocs(q);
-      
+      const enrollmentSnap = await db.collection('enrollments')
+        .where('userId', '==', userId)
+        .where('courseId', '==', courseId)
+        .get();
+
       if (enrollmentSnap.empty) {
         throw new Error('Enrollment not found');
       }
-  
+
       const enrollmentDoc = enrollmentSnap.docs[0];
       const enrollmentData = enrollmentDoc.data();
       const completedLectures = enrollmentData.completedLectures || [];
-      
+
       const isCompleted = completedLectures.includes(lectureId);
-      
+
+      const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
+
       if (isCompleted) {
         // Remove from completed
-        await updateDoc(doc(db, 'enrollments', enrollmentDoc.id), {
+        await enrollmentRef.update({
           completedLectures: arrayRemove(lectureId),
-          updatedAt: serverTimestamp()
+          updatedAt: firestore.FieldValue.serverTimestamp()
         });
       } else {
         // Add to completed
-        await updateDoc(doc(db, 'enrollments', enrollmentDoc.id), {
+        await enrollmentRef.update({
           completedLectures: arrayUnion(lectureId),
-          updatedAt: serverTimestamp()
+          updatedAt: firestore.FieldValue.serverTimestamp()
         });
       }
-  
+
       // Recalculate progress
-      const newCompletedLectures = isCompleted 
+      const newCompletedLectures = isCompleted
         ? completedLectures.filter(id => id !== lectureId)
         : [...completedLectures, lectureId];
-      
+
       await updateCourseProgress(userId, courseId, newCompletedLectures);
-  
+
       return { success: true };
     } catch (error) {
       console.error('Error toggling lecture:', error);

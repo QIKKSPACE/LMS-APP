@@ -185,10 +185,10 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
                     onPress={handleClearSearch}
                     style={styles.clearButton}
                   >
-                    <Icon name="clear" size={40} color="#999" />
+                    <Icon name="clear" size={30} color="#999" />
                   </TouchableOpacity>
                 ) : (
-                  <Icon name="search" size={40} color="#999" style={styles.searchIcon} />
+                  <Icon name="search" size={50} color="#999" style={styles.searchIcon} />
                 )}
               </View>
 

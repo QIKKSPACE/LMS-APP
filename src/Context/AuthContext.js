@@ -1,5 +1,6 @@
 // src/context/AuthContext.jsx - OPTIMIZED VERSION
 import React, { createContext, useState, useContext, useEffect, useCallback, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   signupUser,
   loginUser,
@@ -36,25 +37,33 @@ export const AuthProvider = ({ children }) => {
         if (firebaseUser) {
           console.log('Firebase user detected:', firebaseUser.uid);
           
-          // OPTIMIZATION: Check if we already have this user's data
-          const cachedUser = sessionStorage.getItem(`user_${firebaseUser.uid}`);
-          if (cachedUser) {
-            console.log('Using cached user profile');
-            setUser(JSON.parse(cachedUser));
-            setIsLoading(false);
-            setAuthInitialized(true);
-            return;
+          // OPTIMIZATION: Check if we already have this user's data in AsyncStorage
+          try {
+            const cachedUser = await AsyncStorage.getItem(`user_${firebaseUser.uid}`);
+            if (cachedUser) {
+              console.log('Using cached user profile');
+              setUser(JSON.parse(cachedUser));
+              setIsLoading(false);
+              setAuthInitialized(true);
+              return;
+            }
+          } catch (storageError) {
+            console.log('AsyncStorage read failed, fetching from server');
           }
 
           // Fetch profile only if not cached
           const result = await getUserProfile(firebaseUser.uid);
-          
+
           if (result.success && isMounted) {
             console.log('User profile loaded successfully');
             const userData = result.user;
             setUser(userData);
-            // Cache user data
-            sessionStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(userData));
+            // Cache user data in AsyncStorage
+            try {
+              await AsyncStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(userData));
+            } catch (storageError) {
+              console.log('Failed to cache user data');
+            }
           } else if (isMounted) {
             console.log('Creating basic user profile');
             const newProfile = {
@@ -67,12 +76,20 @@ export const AuthProvider = ({ children }) => {
               updatedAt: new Date().toISOString()
             };
             setUser(newProfile);
-            sessionStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(newProfile));
+            try {
+              await AsyncStorage.setItem(`user_${firebaseUser.uid}`, JSON.stringify(newProfile));
+            } catch (storageError) {
+              console.log('Failed to cache user data');
+            }
           }
         } else {
           console.log('No user signed in');
           setUser(null);
-          sessionStorage.clear(); // Clear all cached data
+          try {
+            await AsyncStorage.clear(); // Clear all cached data
+          } catch (storageError) {
+            console.log('Failed to clear AsyncStorage');
+          }
         }
       } catch (error) {
         console.error('Error in auth state change:', error);
@@ -105,8 +122,12 @@ export const AuthProvider = ({ children }) => {
       if (result.success) {
         console.log('Signup successful');
         setUser(result.user);
-        // Cache immediately
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        // Cache immediately in AsyncStorage
+        try {
+          await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        } catch (storageError) {
+          console.log('Failed to cache user data after signup');
+        }
         return { success: true, user: result.user };
       } else {
         console.error('Signup failed:', result.error);
@@ -134,8 +155,12 @@ export const AuthProvider = ({ children }) => {
       if (result.success) {
         console.log('Login successful');
         setUser(result.user);
-        // Cache immediately
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        // Cache immediately in AsyncStorage
+        try {
+          await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        } catch (storageError) {
+          console.log('Failed to cache user data after login');
+        }
         return { success: true, user: result.user };
       } else {
         console.error('Login failed:', result.error);
@@ -163,7 +188,11 @@ export const AuthProvider = ({ children }) => {
       if (result.success) {
         console.log('Logout successful');
         setUser(null);
-        sessionStorage.clear();
+        try {
+          await AsyncStorage.clear();
+        } catch (storageError) {
+          console.log('Failed to clear AsyncStorage after logout');
+        }
       }
       
       setIsLoading(false);
@@ -188,8 +217,12 @@ export const AuthProvider = ({ children }) => {
       if (result && result.success) {
         console.log('Profile update successful');
         setUser(result.user);
-        // Update cache
-        sessionStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        // Update cache in AsyncStorage
+        try {
+          await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        } catch (storageError) {
+          console.log('Failed to cache updated profile');
+        }
         return { success: true, user: result.user };
       } else {
         const errorMsg = result?.error || 'Failed to update profile';
