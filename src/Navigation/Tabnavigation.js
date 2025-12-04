@@ -29,14 +29,15 @@ const Tabnavigation = () => {
                 />
                 <Tab.Screen
                     name="Mycourse"
-                    component={MyCourse}
                     options={{
                         tabBarLabel: 'My Courses',
                         tabBarIcon: ({ color, size }) => (
                             <Icon name="school" color={color} size={size} />
                         ),
                     }}
-                />
+                >
+                    {(props) => <MyCourse {...props} />}
+                </Tab.Screen>
                 <Tab.Screen
                     name="Live"
                     component={LiveSession}

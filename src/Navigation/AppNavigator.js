@@ -8,6 +8,7 @@ import { useAuth } from '../Context/AuthContext';
 import AuthScreen from '../Screen/AuthScreen';
 import TabNavigation from './Tabnavigation';
 import BuyCourseDetailScreen from '../Screen/BuyCourseDetail';
+import VideoPlayerScreen from '../Screen/VideoPlayerScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -43,6 +44,11 @@ const AppNavigator = () => {
             <Stack.Screen
               name="BuyCourseDetail"
               component={BuyCourseDetailScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="VideoPlayer"
+              component={VideoPlayerScreen}
               options={{ headerShown: false }}
             />
           </>

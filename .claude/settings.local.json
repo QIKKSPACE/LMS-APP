@@ -15,7 +15,9 @@
       "Bash(npx react-native run-android:*)",
       "Bash(node:*)",
       "Bash(del:*)",
-      "Bash(npx react-native doctor:*)"
+      "Bash(npx react-native doctor:*)",
+      "Bash(./gradlew.bat app:installDebug:*)",
+      "Bash(gradlew.bat app:installDebug:*)"
     ],
     "deny": [],
     "ask": []

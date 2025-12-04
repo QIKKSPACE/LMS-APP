@@ -1,6 +1,6 @@
 // src/services/courseService.js
 import firestore from '@react-native-firebase/firestore';
-  import { db } from '../firebase';
+import { db } from '../firebase';
   
   /**
    * Convert admin course structure to frontend format
@@ -276,13 +276,13 @@ import firestore from '@react-native-firebase/firestore';
       if (isCompleted) {
         // Remove from completed
         await enrollmentRef.update({
-          completedLectures: arrayRemove(lectureId),
+          completedLectures: firestore.FieldValue.arrayRemove(lectureId),
           updatedAt: firestore.FieldValue.serverTimestamp()
         });
       } else {
         // Add to completed
         await enrollmentRef.update({
-          completedLectures: arrayUnion(lectureId),
+          completedLectures: firestore.FieldValue.arrayUnion(lectureId),
           updatedAt: firestore.FieldValue.serverTimestamp()
         });
       }

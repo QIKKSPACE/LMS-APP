@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import CourseCard from '../Components/CourseCard';
 
 const { width } = Dimensions.get('window');
 
-const CoursesScreen = ({ onCourseClick }) => {
+const CoursesScreen = ({ navigation, onCourseClick }) => {
   const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState('all');
   const [coursesWithProgress, setCoursesWithProgress] = useState([]);
@@ -128,6 +128,15 @@ const CoursesScreen = ({ onCourseClick }) => {
   const handleClearSearch = () => {
     setSearchQuery('');
   };
+
+  const handleCourseClick = useCallback((courseId) => {
+    if (onCourseClick) {
+      onCourseClick(courseId);
+    } else {
+      // Default behavior: navigate to video player
+      navigation.navigate('VideoPlayer', { courseId });
+    }
+  }, [navigation, onCourseClick]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -281,7 +290,8 @@ const CoursesScreen = ({ onCourseClick }) => {
                   isPurchased={course.isPurchased}
                   price={course.price}
                   expiryDate={course.expiryDate}
-                  onCourseClick={onCourseClick}
+                  onCourseClick={handleCourseClick}
+                  navigation={navigation}
                 />
               </View>
             ))}
