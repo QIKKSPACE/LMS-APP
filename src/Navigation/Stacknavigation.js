@@ -14,8 +14,10 @@ const Stacknavigation = () => {
                 screenOptions={{ headerShown: false }}>
                 <Stack.Screen name='Login' component={LoginScreen} />
                 <Stack.Screen name='Home' component={HomeSCreen} />
-                              <Stack.Screen name='Filter' component={FilterTabs} />
-                          <Stack.Screen name='Filter' component={AuthScreen} />
+                <Stack.Screen name='Filter' component={FilterTabs} />
+                <Stack.Screen name='Filter' component={AuthScreen} />
+
+
 
 
             </Stack.Navigator>

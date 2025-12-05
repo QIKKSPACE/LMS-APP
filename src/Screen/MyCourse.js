@@ -1,113 +1,112 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
+  StyleSheet,
+  FlatList,
   ActivityIndicator,
   Image,
-  StyleSheet,
+  TouchableOpacity,
   Dimensions,
+  ScrollView,
   TextInput,
-  RefreshControl,
-  AppState,
 } from 'react-native';
+import { LinearGradient } from 'react-native-linear-gradient';
+import CourseCard from '../Components/CourseCard';
+import FilterTabs from '../Components/FilterTabs'
+
 import { getUserCourses } from '../Services/courseService';
 import { useAuth } from '../Context/AuthContext';
 import { checkCourseExpiry } from '../unities/courseExpiry';
-import CourseCard from '../Components/CourseCard';
 
 const { width } = Dimensions.get('window');
+const isTablet = width >= 768;
 
-const CoursesScreen = ({ navigation, onCourseClick }) => {
-  const { user } = useAuth();
+const CoursesScreen = ({ onCourseClick }) => {
   const [activeFilter, setActiveFilter] = useState('all');
-  const [coursesWithProgress, setCoursesWithProgress] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { user } = useAuth();
 
+  // ✅ ONLY "All" and "Expired" tabs
   const filterTabs = [
     { id: 'all', label: 'All' },
-    { id: 'in_progress', label: 'In Progress' },
-    { id: 'completed', label: 'Completed' },
     { id: 'expired', label: 'Expired' },
   ];
 
-  // Fetch user's courses from Firestore
-  const fetchUserCourses = async () => {
-    if (!user || !user.uid) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const userCourses = await getUserCourses(user.uid);
-      
-      // Check expiry for each course
-      const coursesWithExpiryCheck = userCourses.map(course => 
-        checkCourseExpiry(course)
-      );
-      
-      setCoursesWithProgress(coursesWithExpiryCheck);
-      setError(null);
-    } catch (err) {
-      console.error('Error loading user courses:', err);
-      setError('Failed to load your courses. Please try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
+  // Fetch user's purchased courses from Firestore
   useEffect(() => {
+    const fetchUserCourses = async () => {
+      if (!user || !user.uid) {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        console.log('Fetching purchased courses for user:', user.uid);
+        const courses = await getUserCourses(user.uid);
+
+        if (Array.isArray(courses)) {
+          // Check expiry and determine status for each course
+          const coursesWithStatus = courses.map(course => {
+            // First check expiry
+            const courseWithExpiry = checkCourseExpiry(course);
+
+            // Then determine status based on progress
+            let finalStatus = courseWithExpiry.status;
+            const progress = course.progress || 0;
+
+            if (courseWithExpiry.isExpired) {
+              finalStatus = 'EXPIRED';
+            } else if (progress === 100) {
+              finalStatus = 'COMPLETED';
+            } else if (progress > 0) {
+              finalStatus = 'IN_PROGRESS';
+            } else {
+              finalStatus = 'NOT_STARTED';
+            }
+
+            console.log(`Course: ${course.courseTitle}, Progress: ${progress}%, Status: ${finalStatus}`);
+
+            return {
+              ...courseWithExpiry,
+              status: finalStatus
+            };
+          });
+
+          console.log('User courses with status:', coursesWithStatus);
+          setCourses(coursesWithStatus);
+        } else {
+          console.error('Unexpected result format from getUserCourses');
+          setError('Failed to fetch courses: Invalid response format');
+        }
+      } catch (err) {
+        console.error('Error in fetchUserCourses:', err);
+        setError('An unexpected error occurred: ' + err.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     fetchUserCourses();
   }, [user]);
 
-  // Refresh courses when app comes to foreground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'active' && user?.uid) {
-        getUserCourses(user.uid).then(courses => {
-          const coursesWithExpiryCheck = courses.map(course => 
-            checkCourseExpiry(course)
-          );
-          setCoursesWithProgress(coursesWithExpiryCheck);
-        });
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [user]);
-
-  // Periodic expiry check (every hour)
-  useEffect(() => {
-    const checkExpiryInterval = setInterval(() => {
-      setCoursesWithProgress((prevCourses) => {
-        return prevCourses.map((course) => checkCourseExpiry(course));
-      });
-    }, 60 * 60 * 1000); // Check every hour
-
-    return () => clearInterval(checkExpiryInterval);
-  }, []);
-
+  // ✅ SIMPLIFIED FILTERING - Only "All" and "Expired"
   const filteredCourses = useMemo(() => {
-    let result = coursesWithProgress;
+    let result = courses;
     
     // Apply status filter
-    if (activeFilter !== 'all') {
-      result = result.filter((course) => {
-        const categoryMap = {
-          in_progress: 'IN_PROGRESS',
-          completed: 'COMPLETED',
-          expired: 'EXPIRED',
-        };
-        return course.status === categoryMap[activeFilter];
-      });
+    if (activeFilter === 'all') {
+      // "All" shows ALL courses except expired
+      result = courses.filter(c => c.status !== 'EXPIRED');
+    } else if (activeFilter === 'expired') {
+      // Show only EXPIRED courses
+      result = courses.filter(c => c.status === 'EXPIRED');
     }
     
     // Apply search filter
@@ -115,374 +114,340 @@ const CoursesScreen = ({ navigation, onCourseClick }) => {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter((course) => {
         return (
-          course.title.toLowerCase().includes(query) ||
-          (course.membershipType && course.membershipType.toLowerCase().includes(query)) ||
-          (course.description && course.description.toLowerCase().includes(query))
+          course.title?.toLowerCase().includes(query) ||
+          course.courseTitle?.toLowerCase().includes(query) ||
+          course.membershipType?.toLowerCase().includes(query) ||
+          course.description?.toLowerCase().includes(query)
         );
       });
     }
     
     return result;
-  }, [activeFilter, coursesWithProgress, searchQuery]);
+  }, [activeFilter, courses, searchQuery]);
+
+  // ✅ SIMPLIFIED COUNT - Only "All" and "Expired"
+  const courseCounts = useMemo(() => {
+    return {
+      all: courses.filter(c => c.status !== 'EXPIRED').length,
+      expired: courses.filter(c => c.status === 'EXPIRED').length,
+    };
+  }, [courses]);
 
   const handleClearSearch = () => {
     setSearchQuery('');
   };
 
-  const handleCourseClick = useCallback((courseId) => {
-    if (onCourseClick) {
-      onCourseClick(courseId);
-    } else {
-      // Default behavior: navigate to video player
-      navigation.navigate('VideoPlayer', { courseId });
-    }
-  }, [navigation, onCourseClick]);
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchUserCourses();
-  };
-
   // Loading state
-  if (loading) {
+  if (isLoading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#DC2626" />
-        <Text style={styles.loadingText}>Loading your courses...</Text>
-      </View>
+      <LinearGradient
+        colors={['#f9fafb', '#ffffff', '#f3f4f6']}
+        style={styles.container}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#dc2626" />
+          <Text style={styles.loadingText}>Loading your courses...</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   // Error state
   if (error) {
     return (
-      <View style={styles.centerContainer}>
-        <View style={styles.errorIcon}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
+      <LinearGradient
+        colors={['#f9fafb', '#ffffff', '#f3f4f6']}
+        style={styles.container}>
+        <View style={styles.centerContainer}>
+          <View style={styles.errorIconContainer}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+          </View>
+          <Text style={styles.errorTitle}>Failed to load courses</Text>
+          <Text style={styles.errorMessage}>{error}</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setIsLoading(true);
+              setError(null);
+            }}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={fetchUserCourses}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </View>
+      </LinearGradient>
     );
   }
 
-  return (
-    <View style={styles.container}>
+  const renderHeader = () => (
+    <View>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>My Courses</Text>
-          <Image 
+        <View style={styles.headerContent}>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.headerTitle}>My Courses</Text>
+            <Text style={styles.headerSubtitle}>Your purchased courses and progress</Text>
+          </View>
+          <Image
             source={require('../assets/logo.png')}
             style={styles.logo}
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.headerSubtitle}>Your purchased courses and progress</Text>
-
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchInputContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search your courses..."
-              placeholderTextColor="#9CA3AF"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery !== '' && (
-              <TouchableOpacity onPress={handleClearSearch}>
-                <Text style={styles.clearIcon}>✕</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Filter Tabs */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterTabsContainer}
-          contentContainerStyle={styles.filterTabsContent}
-        >
-          {filterTabs.map((tab) => (
-            <TouchableOpacity
-              key={tab.id}
-              style={[
-                styles.filterTab,
-                activeFilter === tab.id && styles.filterTabActive
-              ]}
-              onPress={() => setActiveFilter(tab.id)}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.filterTabText,
-                activeFilter === tab.id && styles.filterTabTextActive
-              ]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
-      {/* Course List */}
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#DC2626']}
-          />
-        }
-      >
-        {coursesWithProgress.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyEmoji}>📚</Text>
-            </View>
-            <Text style={styles.emptyTitle}>No purchased courses yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Browse courses in the Home section to get started
-            </Text>
-          </View>
-        ) : filteredCourses.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyEmoji}>🔍</Text>
-            </View>
-            <Text style={styles.emptyTitle}>No courses found</Text>
-            <Text style={styles.emptySubtitle}>
-              {searchQuery ? 'Try adjusting your search terms' : 'No courses in this category'}
-            </Text>
-          </View>
-        ) : (
-          <>
-            {/* Results count */}
-            {searchQuery !== '' && (
-              <View style={styles.resultsContainer}>
-                <Text style={styles.resultsText}>
-                  Found <Text style={styles.resultsCount}>{filteredCourses.length}</Text> course
-                  {filteredCourses.length !== 1 ? 's' : ''} matching "{searchQuery}"
-                </Text>
-              </View>
-            )}
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search your courses..."
+          placeholderTextColor="#999"
+        />
+      </View>
 
-            {/* Course Cards */}
-            {filteredCourses.map((course, index) => (
-              <View key={course.id} style={styles.courseCardWrapper}>
-                <CourseCard
-                  courseId={course.id}
-                  title={course.title}
-                  membershipType={course.membershipType}
-                  thumbnail={course.thumbnail}
-                  status={course.status}
-                  progress={course.progress}
-                  chapters={course.chapters}
-                  isPurchased={course.isPurchased}
-                  price={course.price}
-                  expiryDate={course.expiryDate}
-                  onCourseClick={handleCourseClick}
-                  navigation={navigation}
-                />
-              </View>
-            ))}
-          </>
-        )}
-      </ScrollView>
+      {/* Filter Tabs */}
+      <FilterTabs
+        tabs={filterTabs.map(tab => ({
+          ...tab,
+          label: `${tab.label} ${courseCounts[tab.id] > 0 ? `(${courseCounts[tab.id]})` : ''}`
+        }))}
+        activeTab={activeFilter}
+        onTabChange={setActiveFilter}
+      />
+
+      {/* Results count */}
+      {searchQuery && filteredCourses.length > 0 && (
+        <View style={styles.resultsCountContainer}>
+          <Text style={styles.resultsCountText}>
+            Found <Text style={styles.resultsCountBold}>{filteredCourses.length}</Text> course{filteredCourses.length !== 1 ? 's' : ''} matching "{searchQuery}"
+          </Text>
+        </View>
+      )}
     </View>
+  );
+
+  const renderEmptyState = () => {
+    if (courses.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconContainer}>
+            <Text style={styles.emptyIcon}>📚</Text>
+          </View>
+          <Text style={styles.emptyTitle}>No purchased courses yet</Text>
+          <Text style={styles.emptySubtitle}>Browse courses in the Home section to get started</Text>
+        </View>
+      );
+    }
+
+    if (filteredCourses.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconContainer}>
+            <Text style={styles.emptyIcon}>🔍</Text>
+          </View>
+          <Text style={styles.emptyTitle}>No courses found</Text>
+          <Text style={styles.emptySubtitle}>
+            {searchQuery 
+              ? 'Try adjusting your search terms' 
+              : `No courses in "${filterTabs.find(t => t.id === activeFilter)?.label}"`
+            }
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  const renderCourseItem = ({ item, index }) => (
+    <View style={styles.courseCardWrapper}>
+      <CourseCard
+        courseId={item.id}
+        title={item.title}
+        courseTitle={item.courseTitle}
+        courseName={item.courseName}
+        membershipType={item.membershipType}
+        thumbnail={item.thumbnail}
+        courseThumbnail={item.courseThumbnail}
+        thumbnailUrl={item.thumbnailUrl}
+        imageUrl={item.imageUrl}
+        status={item.status}
+        progress={item.progress || 0}
+        chapters={item.chapters || 0}
+        isPurchased={true}
+        price={item.price}
+        expiryDate={item.expiryDate}
+        showStatus={false}
+        onCourseClick={onCourseClick}
+      />
+    </View>
+  );
+
+  return (
+    <LinearGradient
+      colors={['#f9fafb', '#ffffff', '#f3f4f6']}
+      style={styles.container}>
+      <FlatList
+        data={filteredCourses}
+        renderItem={renderCourseItem}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmptyState}
+        contentContainerStyle={[
+          styles.listContent,
+          filteredCourses.length === 0 && styles.listContentEmpty
+        ]}
+        numColumns={isTablet ? 2 : 1}
+        key={isTablet ? 'tablet' : 'mobile'}
+        showsVerticalScrollIndicator={false}
+      />
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
   },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#4b5563',
+  },
+  errorIconContainer: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#fee2e2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  errorIcon: {
+    fontSize: 48,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#dc2626',
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: '#4b5563',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#dc2626',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 3,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
-  headerTop: {
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  headerTextContainer: {
+    flex: 1,
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: '#111827',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#4b5563',
+    marginTop: 4,
   },
   logo: {
     width: 40,
     height: 40,
     borderRadius: 20,
   },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginBottom: 16,
-  },
   searchContainer: {
-    marginBottom: 16,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-  },
-  searchIcon: {
-    fontSize: 18,
-    marginRight: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
   },
   searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#111827',
-  },
-  clearIcon: {
-    fontSize: 18,
-    color: '#6B7280',
-    paddingLeft: 8,
-  },
-  filterTabsContainer: {
-    marginHorizontal: -16,
-  },
-  filterTabsContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-  },
-  filterTab: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginRight: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-  },
-  filterTabActive: {
-    backgroundColor: '#DC2626',
-  },
-  filterTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  filterTabTextActive: {
-    color: '#FFFFFF',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  errorIcon: {
-    width: 64,
-    height: 64,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  errorEmoji: {
-    fontSize: 32,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#DC2626',
-    fontWeight: '500',
-    marginBottom: 16,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  retryButton: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    height: 40,
+    backgroundColor: '#f3f4f6',
     borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
+    paddingHorizontal: 16,
     fontSize: 16,
-    fontWeight: 'bold',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  resultsCountContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  resultsCountText: {
+    fontSize: 14,
+    color: '#4b5563',
+  },
+  resultsCountBold: {
+    fontWeight: '700',
+    color: '#dc2626',
+  },
+  listContent: {
+    paddingBottom: 24,
+  },
+  listContentEmpty: {
+    flexGrow: 1,
+  },
+  courseCardWrapper: {
+    flex: isTablet ? 0.5 : 1,
+    padding: 8,
   },
   emptyContainer: {
-    alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 80,
   },
-  emptyIcon: {
+  emptyIconContainer: {
     width: 96,
     height: 96,
-    backgroundColor: '#E5E7EB',
     borderRadius: 48,
+    backgroundColor: '#e5e7eb',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
-  emptyEmoji: {
+  emptyIcon: {
     fontSize: 48,
   },
   emptyTitle: {
     fontSize: 18,
-    color: '#6B7280',
     fontWeight: '600',
+    color: '#6b7280',
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: '#9ca3af',
     textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  resultsContainer: {
-    marginBottom: 16,
-  },
-  resultsText: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  resultsCount: {
-    fontWeight: 'bold',
-    color: '#DC2626',
-  },
-  courseCardWrapper: {
-    marginBottom: 16,
   },
 });
 

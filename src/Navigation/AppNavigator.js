@@ -9,6 +9,7 @@ import AuthScreen from '../Screen/AuthScreen';
 import TabNavigation from './Tabnavigation';
 import BuyCourseDetailScreen from '../Screen/BuyCourseDetail';
 import VideoPlayerScreen from '../Screen/VideoPlayerScreen';
+import MyCourseDetails from '../Screen/MyCourseDetails';
 
 const Stack = createNativeStackNavigator();
 
@@ -41,6 +42,11 @@ const AppNavigator = () => {
           // User is authenticated, show tab navigation
           <>
             <Stack.Screen name="MainApp" component={TabNavigation} />
+            <Stack.Screen
+              name="MyCourseDetails"
+              component={MyCourseDetails}
+              options={{ headerShown: false }}
+            />
             <Stack.Screen
               name="BuyCourseDetail"
               component={BuyCourseDetailScreen}

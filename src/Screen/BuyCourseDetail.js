@@ -22,6 +22,7 @@ import {getCourseById, enrollInCourse} from '../Services/courseService';
 import {useAuth} from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { initiateRazorpayPayment } from '../Services/razorpayServiceReactNative';
 
 const {width, height} = Dimensions.get('window');
 
@@ -37,22 +38,37 @@ const BuyCourseDetailScreen = ({route, navigation}) => {
     const fetchCourse = async () => {
       try {
         setLoading(true);
+        console.log('🔍 Fetching course with ID:', courseId);
+
+        if (!courseId) {
+          console.error('❌ No courseId provided');
+          Toast.show({
+            type: 'error',
+            text1: 'Course ID not provided',
+          });
+          return;
+        }
+
         const courseData = await getCourseById(courseId);
+        console.log('📚 Course data received:', courseData);
 
         if (courseData) {
           setCourse(courseData);
+          console.log('✅ Course loaded successfully');
         } else {
-          console.error('Course not found in Firestore');
+          console.error('❌ Course not found in Firestore');
           Toast.show({
             type: 'error',
             text1: 'Course not found',
+            text2: 'The course you are looking for does not exist'
           });
         }
       } catch (error) {
-        console.error('Error fetching course:', error);
+        console.error('❌ Error fetching course:', error);
         Toast.show({
           type: 'error',
           text1: 'Failed to load course',
+          text2: error.message || 'Please check your connection and try again'
         });
       } finally {
         setLoading(false);
@@ -84,47 +100,73 @@ const BuyCourseDetailScreen = ({route, navigation}) => {
           style: 'cancel',
         },
         {
-          text: 'Buy Now',
+          text: 'Proceed to Payment',
           onPress: async () => {
             try {
               setPurchasing(true);
 
-              // Set expiry date (1 year from now)
-              const expiryDate = new Date();
-              expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-              const expiryDateStr = expiryDate.toISOString().split('T')[0];
+              console.log('🚀 Initiating payment for course:', course.title);
 
-              // Enroll user in course
-              const result = await enrollInCourse(
-                user.uid,
-                courseId,
-                expiryDateStr,
+              // Prepare course data for Razorpay
+              const courseData = {
+                id: courseId,
+                title: course.title,
+                price: course.price,
+                description: course.description,
+                thumbnail: course.thumbnail,
+              };
+
+              // Prepare user data for Razorpay
+              const userData = {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.name,
+                phoneNumber: user.phoneNumber,
+              };
+
+              // Initiate Razorpay payment
+              const paymentResult = await initiateRazorpayPayment(
+                courseData,
+                userData,
+                (result) => {
+                  // Callback after successful payment
+                  console.log('✅ Payment callback received:', result);
+                }
               );
 
-              if (result.success) {
-                Toast.show({
-                  type: 'success',
-                  text1: '🎉 Course purchased successfully!',
-                });
+              console.log('💰 Payment successful:', paymentResult);
 
-                // Wait a bit for user to see the success message
-                setTimeout(() => {
-                  if (onPurchase) {
-                    onPurchase(courseId);
-                  }
-                  navigation.goBack();
-                }, 1500);
-              } else {
-                Toast.show({
-                  type: 'error',
-                  text1: result.error || 'Failed to purchase course',
-                });
-              }
+              Toast.show({
+                type: 'success',
+                text1: '🎉 Payment successful!',
+                text2: 'Course added to your library',
+              });
+
+              // Wait a bit for user to see the success message
+              setTimeout(() => {
+                if (onPurchase) {
+                  onPurchase(courseId);
+                }
+                // Navigate to MyCourseDetails after purchase
+                navigation.replace('MyCourseDetails', { courseId });
+              }, 2000);
+
             } catch (error) {
-              console.error('Purchase error:', error);
+              console.error('💳 Payment error:', error);
+
+              let errorMessage = 'Payment failed';
+              if (error.message.includes('cancelled')) {
+                errorMessage = 'Payment was cancelled';
+              } else if (error.message.includes('Payment gateway not configured')) {
+                errorMessage = 'Payment service not available. Please contact support.';
+              } else {
+                errorMessage = error.message || 'An error occurred during payment';
+              }
+
               Toast.show({
                 type: 'error',
-                text1: 'An error occurred during purchase',
+                text1: 'Payment Failed',
+                text2: errorMessage,
               });
             } finally {
               setPurchasing(false);
@@ -321,7 +363,7 @@ const BuyCourseDetailScreen = ({route, navigation}) => {
                   ) : (
                     <>
                       <MaterialCommunityIcons
-                        name="cart"
+                        name="credit-card"
                         size={20}
                         color="#FFF"
                         style={styles.cartIcon}

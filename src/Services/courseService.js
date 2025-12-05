@@ -1,11 +1,11 @@
 // src/services/courseService.js
 import firestore from '@react-native-firebase/firestore';
 import { db } from '../firebase';
-  
-  /**
-   * Convert admin course structure to frontend format
-   */
-  const convertCourseFormat = (adminCourse, userEnrollment = null) => {
+
+/**
+ * Convert admin course structure to frontend format
+ */
+const convertCourseFormat = (adminCourse, userEnrollment = null) => {
     const course = {
       id: adminCourse.id,
       title: adminCourse.courseTitle,
@@ -70,265 +70,281 @@ import { db } from '../firebase';
   };
   
   /**
-   * Calculate total duration of a section
-   */
-  const calculateSectionDuration = (lectures = []) => {
-    const totalMinutes = lectures.reduce((sum, lecture) => sum + (lecture.lectureDuration || 0), 0);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return `${hours}hr ${minutes}min`;
-  };
-  
-  /**
-   * Format lecture duration
-   */
-  const formatDuration = (minutes) => {
-    if (minutes < 60) {
-      return `${minutes}:00`;
+ * Calculate total duration of a section
+ */
+const calculateSectionDuration = (lectures = []) => {
+  const totalMinutes = lectures.reduce((sum, lecture) => sum + (lecture.lectureDuration || 0), 0);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}hr ${minutes}min`;
+};
+
+/**
+ * Format lecture duration
+ */
+const formatDuration = (minutes) => {
+  if (minutes < 60) {
+    return `${minutes}:00`;
+  }
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hrs}:${mins.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Calculate course status
+ */
+const calculateCourseStatus = (enrollment) => {
+  const now = new Date();
+  const expiry = new Date(enrollment.expiryDate);
+
+  if (enrollment.progress === 100) {
+    return 'COMPLETED';
+  } else if (expiry < now) {
+    return 'EXPIRED';
+  } else if (enrollment.progress > 0) {
+    return 'IN_PROGRESS';
+  } else {
+    return 'PAID';
+  }
+};
+
+/**
+ * Fetch all courses from Firestore
+ */
+export const getAllCourses = async () => {
+  try {
+    const snapshot = await db.collection('courses').get();
+
+    const courses = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    return courses.map(course => convertCourseFormat(course));
+  } catch (error) {
+    console.error('Error fetching courses:', error);
+    return [];
+  }
+};
+
+/**
+ * Fetch single course by ID
+ */
+export const getCourseById = async (courseId) => {
+  try {
+    console.log('🔍 Fetching course from Firestore:', courseId);
+
+    if (!courseId) {
+      console.error('❌ Course ID is required');
+      return null;
     }
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hrs}:${mins.toString().padStart(2, '0')}`;
-  };
-  
-  /**
-   * Calculate course status
-   */
-  const calculateCourseStatus = (enrollment) => {
-    const now = new Date();
-    const expiry = new Date(enrollment.expiryDate);
-    
-    if (enrollment.progress === 100) {
-      return 'COMPLETED';
-    } else if (expiry < now) {
-      return 'EXPIRED';
-    } else if (enrollment.progress > 0) {
-      return 'IN_PROGRESS';
+
+    const courseSnap = await db.collection('courses').doc(courseId).get();
+    console.log('📄 Firestore snapshot exists:', courseSnap.exists);
+
+    if (courseSnap.exists) {
+      const courseData = {
+        id: courseSnap.id,
+        ...courseSnap.data()
+      };
+      console.log('📚 Raw course data:', courseData);
+
+      const formattedCourse = convertCourseFormat(courseData);
+      console.log('✅ Formatted course data:', formattedCourse);
+
+      return formattedCourse;
     } else {
-      return 'PAID';
-    }
-  };
-  
-  /**
-   * Fetch all courses from Firestore
-   */
-  export const getAllCourses = async () => {
-    try {
-      const snapshot = await db.collection('courses').get();
-
-      const courses = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-
-      return courses.map(course => convertCourseFormat(course));
-    } catch (error) {
-      console.error('Error fetching courses:', error);
-      return [];
-    }
-  };
-  
-  /**
-   * Fetch single course by ID
-   */
-  export const getCourseById = async (courseId) => {
-    try {
-      const courseSnap = await db.collection('courses').doc(courseId).get();
-
-      if (courseSnap.exists) {
-        return convertCourseFormat({
-          id: courseSnap.id,
-          ...courseSnap.data()
-        });
-      }
-      return null;
-    } catch (error) {
-      console.error('Error fetching course:', error);
+      console.warn('⚠️ Course document does not exist in Firestore');
       return null;
     }
-  };
-  
-  /**
-   * Fetch user's enrolled courses
-   */
-  export const getUserCourses = async (userId) => {
-    try {
-      // Get user enrollments
-      const enrollmentSnap = await db.collection('enrollments').where('userId', '==', userId).get();
+  } catch (error) {
+    console.error('❌ Error fetching course from Firestore:', error);
+    return null;
+  }
+};
 
-      if (enrollmentSnap.empty) {
-        return [];
-      }
+/**
+ * Fetch user's enrolled courses
+ */
+export const getUserCourses = async (userId) => {
+  try {
+    // Get user enrollments
+    const enrollmentSnap = await db.collection('enrollments').where('userId', '==', userId).get();
 
-      const enrollments = {};
-      enrollmentSnap.docs.forEach(doc => {
-        enrollments[doc.data().courseId] = {
-          ...doc.data(),
-          enrollmentId: doc.id
-        };
-      });
-
-      // Get all courses
-      const coursesSnap = await db.collection('courses').get();
-
-      // Filter and convert enrolled courses
-      const userCourses = coursesSnap.docs
-        .filter(doc => enrollments[doc.id])
-        .map(doc => {
-          const courseData = { id: doc.id, ...doc.data() };
-          const enrollment = enrollments[doc.id];
-          return convertCourseFormat(courseData, enrollment);
-        });
-
-      return userCourses;
-    } catch (error) {
-      console.error('Error fetching user courses:', error);
+    if (enrollmentSnap.empty) {
       return [];
     }
-  };
-  
-  /**
-   * Enroll user in a course (purchase)
-   */
-  export const enrollInCourse = async (userId, courseId, expiryDate) => {
-    try {
-      const enrollmentRef = db.collection('enrollments').doc();
 
-      await enrollmentRef.set({
-        userId,
-        courseId,
-        enrolledAt: firestore.FieldValue.serverTimestamp(),
-        expiryDate: expiryDate || getDefaultExpiryDate(),
-        progress: 0,
-        completedLectures: [],
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        updatedAt: firestore.FieldValue.serverTimestamp()
+    const enrollments = {};
+    enrollmentSnap.docs.forEach(doc => {
+      enrollments[doc.data().courseId] = {
+        ...doc.data(),
+        enrollmentId: doc.id
+      };
+    });
+
+    // Get all courses
+    const coursesSnap = await db.collection('courses').get();
+
+    // Filter and convert enrolled courses
+    const userCourses = coursesSnap.docs
+      .filter(doc => enrollments[doc.id])
+      .map(doc => {
+        const courseData = { id: doc.id, ...doc.data() };
+        const enrollment = enrollments[doc.id];
+        return convertCourseFormat(courseData, enrollment);
       });
 
-      return { success: true, enrollmentId: enrollmentRef.id };
-    } catch (error) {
-      console.error('Error enrolling in course:', error);
-      return { success: false, error: error.message };
+    return userCourses;
+  } catch (error) {
+    console.error('Error fetching user courses:', error);
+    return [];
+  }
+};
+
+/**
+ * Enroll user in a course (purchase)
+ */
+export const enrollInCourse = async (userId, courseId, expiryDate) => {
+  try {
+    const enrollmentRef = db.collection('enrollments').doc();
+
+    await enrollmentRef.set({
+      userId,
+      courseId,
+      enrolledAt: firestore.FieldValue.serverTimestamp(),
+      expiryDate: expiryDate || getDefaultExpiryDate(),
+      progress: 0,
+      completedLectures: [],
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, enrollmentId: enrollmentRef.id };
+  } catch (error) {
+    console.error('Error enrolling in course:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Update course progress
+ */
+export const updateCourseProgress = async (userId, courseId, completedLectures) => {
+  try {
+    // Find enrollment document
+    const enrollmentSnap = await db.collection('enrollments')
+      .where('userId', '==', userId)
+      .where('courseId', '==', courseId)
+      .get();
+
+    if (enrollmentSnap.empty) {
+      throw new Error('Enrollment not found');
     }
-  };
-  
-  /**
-   * Update course progress
-   */
-  export const updateCourseProgress = async (userId, courseId, completedLectures) => {
-    try {
-      // Find enrollment document
-      const enrollmentSnap = await db.collection('enrollments')
-        .where('userId', '==', userId)
-        .where('courseId', '==', courseId)
-        .get();
 
-      if (enrollmentSnap.empty) {
-        throw new Error('Enrollment not found');
-      }
+    const enrollmentDoc = enrollmentSnap.docs[0];
+    const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
 
-      const enrollmentDoc = enrollmentSnap.docs[0];
-      const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
+    // Get course to calculate progress
+    const course = await getCourseById(courseId);
+    const totalLectures = course.sections.reduce((sum, section) =>
+      sum + section.lecturesList.length, 0
+    );
 
-      // Get course to calculate progress
-      const course = await getCourseById(courseId);
-      const totalLectures = course.sections.reduce((sum, section) =>
-        sum + section.lecturesList.length, 0
-      );
+    const progress = Math.round((completedLectures.length / totalLectures) * 100);
 
-      const progress = Math.round((completedLectures.length / totalLectures) * 100);
+    await enrollmentRef.update({
+      completedLectures,
+      progress,
+      updatedAt: firestore.FieldValue.serverTimestamp()
+    });
 
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating progress:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Toggle lecture completion
+ */
+export const toggleLectureCompletion = async (userId, courseId, lectureId) => {
+  try {
+    const enrollmentSnap = await db.collection('enrollments')
+      .where('userId', '==', userId)
+      .where('courseId', '==', courseId)
+      .get();
+
+    if (enrollmentSnap.empty) {
+      throw new Error('Enrollment not found');
+    }
+
+    const enrollmentDoc = enrollmentSnap.docs[0];
+    const enrollmentData = enrollmentDoc.data();
+    const completedLectures = enrollmentData.completedLectures || [];
+
+    const isCompleted = completedLectures.includes(lectureId);
+
+    const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
+
+    if (isCompleted) {
+      // Remove from completed
       await enrollmentRef.update({
-        completedLectures,
-        progress,
+        completedLectures: firestore.FieldValue.arrayRemove(lectureId),
         updatedAt: firestore.FieldValue.serverTimestamp()
       });
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error updating progress:', error);
-      return { success: false, error: error.message };
+    } else {
+      // Add to completed
+      await enrollmentRef.update({
+        completedLectures: firestore.FieldValue.arrayUnion(lectureId),
+        updatedAt: firestore.FieldValue.serverTimestamp()
+      });
     }
-  };
-  
-  /**
-   * Toggle lecture completion
-   */
-  export const toggleLectureCompletion = async (userId, courseId, lectureId) => {
-    try {
-      const enrollmentSnap = await db.collection('enrollments')
-        .where('userId', '==', userId)
-        .where('courseId', '==', courseId)
-        .get();
 
-      if (enrollmentSnap.empty) {
-        throw new Error('Enrollment not found');
-      }
+    // Recalculate progress
+    const newCompletedLectures = isCompleted
+      ? completedLectures.filter(id => id !== lectureId)
+      : [...completedLectures, lectureId];
 
-      const enrollmentDoc = enrollmentSnap.docs[0];
-      const enrollmentData = enrollmentDoc.data();
-      const completedLectures = enrollmentData.completedLectures || [];
+    await updateCourseProgress(userId, courseId, newCompletedLectures);
 
-      const isCompleted = completedLectures.includes(lectureId);
+    return { success: true };
+  } catch (error) {
+    console.error('Error toggling lecture:', error);
+    return { success: false, error: error.message };
+  }
+};
 
-      const enrollmentRef = db.collection('enrollments').doc(enrollmentDoc.id);
+/**
+ * Get default expiry date (1 year from now)
+ */
+const getDefaultExpiryDate = () => {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().split('T')[0]; // YYYY-MM-DD
+};
 
-      if (isCompleted) {
-        // Remove from completed
-        await enrollmentRef.update({
-          completedLectures: firestore.FieldValue.arrayRemove(lectureId),
-          updatedAt: firestore.FieldValue.serverTimestamp()
-        });
-      } else {
-        // Add to completed
-        await enrollmentRef.update({
-          completedLectures: firestore.FieldValue.arrayUnion(lectureId),
-          updatedAt: firestore.FieldValue.serverTimestamp()
-        });
-      }
+/**
+ * Search courses
+ */
+export const searchCourses = async (searchTerm) => {
+  try {
+    const allCourses = await getAllCourses();
 
-      // Recalculate progress
-      const newCompletedLectures = isCompleted
-        ? completedLectures.filter(id => id !== lectureId)
-        : [...completedLectures, lectureId];
-
-      await updateCourseProgress(userId, courseId, newCompletedLectures);
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error toggling lecture:', error);
-      return { success: false, error: error.message };
+    if (!searchTerm.trim()) {
+      return allCourses;
     }
-  };
-  
-  /**
-   * Get default expiry date (1 year from now)
-   */
-  const getDefaultExpiryDate = () => {
-    const date = new Date();
-    date.setFullYear(date.getFullYear() + 1);
-    return date.toISOString().split('T')[0]; // YYYY-MM-DD
-  };
-  
-  /**
-   * Search courses
-   */
-  export const searchCourses = async (searchTerm) => {
-    try {
-      const allCourses = await getAllCourses();
-      
-      if (!searchTerm.trim()) {
-        return allCourses;
-      }
-  
-      const lowerSearchTerm = searchTerm.toLowerCase();
-      
-      return allCourses.filter(course => 
-        course.title.toLowerCase().includes(lowerSearchTerm) ||
-        course.description?.toLowerCase().includes(lowerSearchTerm)
-      );
-    } catch (error) {
-      console.error('Error searching courses:', error);
-      return [];
-    }
-  };
+
+    const lowerSearchTerm = searchTerm.toLowerCase();
+
+    return allCourses.filter(course =>
+      course.title.toLowerCase().includes(lowerSearchTerm) ||
+      course.description?.toLowerCase().includes(lowerSearchTerm)
+    );
+  } catch (error) {
+    console.error('Error searching courses:', error);
+    return [];
+  }
+};

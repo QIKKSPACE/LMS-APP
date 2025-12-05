@@ -36,9 +36,15 @@ const CourseCard = memo(
         onCourseClick(courseId);
       }
       if (navigation) {
-        navigation.navigate('CourseDetail', { courseId });
+        if (isPurchased) {
+          // Navigate to MyCourseDetails for purchased courses
+          navigation.navigate('MyCourseDetails', { courseId });
+        } else {
+          // Navigate to BuyCourseDetail for unpurchased courses
+          navigation.navigate('BuyCourseDetail', { courseId });
+        }
       }
-    }, [courseId, onCourseClick, navigation]);
+    }, [courseId, onCourseClick, navigation, isPurchased]);
 
     const handleBuyNow = useCallback(() => {
       if (navigation) {
