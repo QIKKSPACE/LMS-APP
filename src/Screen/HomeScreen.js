@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -16,14 +16,17 @@ import {
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { Animated } from 'react-native';
-import { getAllCourses } from '../Services/courseService';
+import { getAllCourses, getUserCourses } from '../Services/courseService';
 import CourseCard from '../Components/CourseCard'
+import { useAuth } from '../Context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
 const HomeScreen = ({ navigation, onCourseClick }) => {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [courses, setCourses] = useState([]);
+  const [userEnrolledCourses, setUserEnrolledCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -34,13 +37,22 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   // Fetch courses from Firestore
   useEffect(() => {
     fetchCourses();
-  }, []);
+  }, [user]);
 
   const fetchCourses = async () => {
     try {
       setLoading(true);
       const fetchedCourses = await getAllCourses();
       setCourses(fetchedCourses);
+
+      // If user is logged in, fetch their enrolled courses
+      if (user) {
+        const enrolledCourses = await getUserCourses(user.uid);
+        setUserEnrolledCourses(enrolledCourses);
+      } else {
+        setUserEnrolledCourses([]);
+      }
+
       setError(null);
     } catch (err) {
       console.error('Error loading courses:', err);
@@ -57,8 +69,12 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   };
 
   const availableCourses = useMemo(() => {
-    return courses.filter((course) => course.isPurchased === false);
-  }, [courses]);
+    // Get IDs of user's enrolled courses
+    const enrolledCourseIds = userEnrolledCourses.map(course => course.id);
+
+    // Filter out courses that the user has already purchased
+    return courses.filter((course) => !enrolledCourseIds.includes(course.id));
+  }, [courses, userEnrolledCourses]);
 
   const filteredCourses = useMemo(() => {
     if (!searchQuery.trim()) {

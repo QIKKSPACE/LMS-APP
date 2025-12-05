@@ -133,7 +133,7 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={24} color="#FFF" />
+          <MaterialCommunityIcons name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {course.title}
@@ -290,6 +290,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     marginTop: 16,
+    height:40,
+    width:70,
   },
   backButtonText: {
     color: '#FFF',
@@ -301,7 +303,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 32,
     backgroundColor: '#000',
   },
   headerTitle: {
