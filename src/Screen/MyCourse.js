@@ -22,7 +22,7 @@ import { checkCourseExpiry } from '../unities/courseExpiry';
 const { width } = Dimensions.get('window');
 const isTablet = width >= 768;
 
-const CoursesScreen = ({ onCourseClick }) => {
+const CoursesScreen = ({ navigation }) => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [courses, setCourses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -135,6 +135,17 @@ const CoursesScreen = ({ onCourseClick }) => {
 
   const handleClearSearch = () => {
     setSearchQuery('');
+  };
+
+  // Handle course click - navigate to VideoPlayerScreen
+  const handleCourseClick = (courseId) => {
+    if (!courseId) {
+      console.error('No courseId provided for navigation');
+      return;
+    }
+
+    console.log('Navigating to VideoPlayer with courseId:', courseId);
+    navigation.navigate('VideoPlayer', { courseId });
   };
 
   // Loading state
@@ -277,7 +288,7 @@ const CoursesScreen = ({ onCourseClick }) => {
         price={item.price}
         expiryDate={item.expiryDate}
         showStatus={false}
-        onCourseClick={onCourseClick}
+        onCourseClick={handleCourseClick}
       />
     </View>
   );

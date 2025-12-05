@@ -36,7 +36,7 @@ const Tabnavigation = () => {
                         ),
                     }}
                 >
-                    {(props) => <MyCourse {...props} />}
+                    {(props) => <MyCourse {...props} navigation={props.navigation} />}
                 </Tab.Screen>
                 <Tab.Screen
                     name="Live"
