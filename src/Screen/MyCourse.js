@@ -22,13 +22,24 @@ import { checkCourseExpiry } from '../unities/courseExpiry';
 const { width } = Dimensions.get('window');
 const isTablet = width >= 768;
 
-const CoursesScreen = ({ navigation }) => {
+const CoursesScreen = ({ navigation, route }) => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [courses, setCourses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const { user } = useAuth();
+
+  // Add refresh trigger when route params change
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (route?.params?.refresh) {
+      // Increment refresh key to trigger a refetch
+      setRefreshKey(prev => prev + 1);
+      console.log('🔄 Refresh triggered from navigation params');
+    }
+  }, [route?.params?.refresh]);
 
   // ✅ ONLY "All" and "Expired" tabs
   const filterTabs = [
@@ -94,7 +105,7 @@ const CoursesScreen = ({ navigation }) => {
     };
 
     fetchUserCourses();
-  }, [user]);
+  }, [user, refreshKey]);
 
   // ✅ SIMPLIFIED FILTERING - Only "All" and "Expired"
   const filteredCourses = useMemo(() => {

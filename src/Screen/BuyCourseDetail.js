@@ -147,8 +147,20 @@ const BuyCourseDetailScreen = ({route, navigation}) => {
                 if (onPurchase) {
                   onPurchase(courseId);
                 }
-                // Navigate to MyCourseDetails after purchase
-                navigation.replace('MyCourseDetails', { courseId });
+                // Navigate to MyCourse tab after purchase
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'MainApp' }],
+                });
+
+                // Navigate to MyCourse tab after a short delay to ensure MainApp loads
+                setTimeout(() => {
+                  Alert.alert("Purchase Successful", "You have successfully purchased the course.");
+                  navigation.navigate('MainApp', {
+                    screen: 'Mycourse',
+                    params: { refresh: true } // Add refresh param to trigger course refresh
+                  });
+                }, 100);
               }, 2000);
 
             } catch (error) {

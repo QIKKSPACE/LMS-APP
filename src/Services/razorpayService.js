@@ -161,10 +161,17 @@ export const initiatePayment = async (courseData, userInfo, onPaymentSuccess = n
               console.log('✅ Calling onPaymentSuccess callback with updated user');
               onPaymentSuccess(result.updatedUser);
             }
-            
-            // Reload page after 2 seconds
+
+            // Navigate to My Courses after 2 seconds instead of reloading
             setTimeout(() => {
-              window.location.reload();
+              // Try to navigate to My Courses tab
+              const myCoursesLink = document.querySelector('a[href="#/mycourse"]');
+              if (myCoursesLink) {
+                myCoursesLink.click();
+              } else {
+                // Fallback: reload the page if navigation link not found
+                window.location.reload();
+              }
             }, 2000);
           } else {
             toast.error('Payment successful but failed to add course. Please contact support.');
