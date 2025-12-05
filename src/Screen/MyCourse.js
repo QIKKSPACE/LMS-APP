@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingTop: 46,
     paddingBottom: 12,
   },
   headerContent: {

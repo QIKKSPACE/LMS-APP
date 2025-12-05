@@ -7,12 +7,15 @@ import {
   StyleSheet,
   Dimensions,
   ImageBackground,
+  Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ProgressBar from './Progressbar';
 import { formatExpiryDate, getDaysUntilExpiry } from '../unities/courseExpiry';
-
+import { initiateRazorpayPayment } from '../Services/razorpayServiceReactNative';
+import Toast from 'react-native-toast-message';
+import { useAuth } from '../Context/AuthContext';
 const { width } = Dimensions.get('window');
 
 const CourseCard = memo(
@@ -30,7 +33,9 @@ const CourseCard = memo(
     expiryDate,
     onCourseClick,
     navigation,
+    description
   }) => {
+    const {user} = useAuth()
     const handleCardPress = useCallback(() => {
       if (onCourseClick) {
         onCourseClick(courseId);
@@ -45,12 +50,114 @@ const CourseCard = memo(
         }
       }
     }, [courseId, onCourseClick, navigation, isPurchased]);
+  const handleBuyNow = async () => {
+    if (!user) {
+      Toast.show({
+        type: 'error',
+        text1: 'Please login to purchase this course',
+      });
+      return;
+    }
 
-    const handleBuyNow = useCallback(() => {
-      if (navigation) {
-        navigation.navigate('BuyCourseDetail', { courseId });
-      }
-    }, [courseId, navigation]);
+    // if (purchasing) return;
+
+    Alert.alert(
+      'Confirm Purchase',
+      `Are you sure you want to purchase "${title}" for ₹${price}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Proceed to Payment',
+          onPress: async () => {
+            try {
+              // setPurchasing(true);
+
+              console.log('🚀 Initiating payment for course:', title);
+
+              // Prepare course data for Razorpay
+              const courseData = {
+                id: courseId,
+                title: title,
+                price: price,
+                description:description,
+                thumbnail: thumbnail,
+              };
+
+              // Prepare user data for Razorpay
+              const userData = {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.name,
+                phoneNumber: user.phoneNumber,
+              };
+
+              // Initiate Razorpay payment
+              const paymentResult = await initiateRazorpayPayment(
+                courseData,
+                userData,
+                (result) => {
+                  // Callback after successful payment
+                  console.log('✅ Payment callback received:', result);
+                }
+              );
+
+              console.log('💰 Payment successful:', paymentResult);
+
+              Toast.show({
+                type: 'success',
+                text1: '🎉 Payment successful!',
+                text2: 'Course added to your library',
+              });
+
+              // Wait a bit for user to see the success message
+              setTimeout(() => {
+                // if (onPurchase) {
+                //   onPurchase(courseId);
+                // }
+                // Navigate to MyCourse tab after purchase
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'MainApp' }],
+                });
+
+                // Navigate to MyCourse tab after a short delay to ensure MainApp loads
+                setTimeout(() => {
+                  Alert.alert("Purchase Successful", "You have successfully purchased the course.");
+                  navigation.navigate('MainApp', {
+                    screen: 'Mycourse',
+                    params: { refresh: true } // Add refresh param to trigger course refresh
+                  });
+                },);
+              }, 1000);
+
+            } catch (error) {
+              console.error('💳 Payment error:', error);
+
+              let errorMessage = 'Payment failed';
+              if (error.message.includes('cancelled')) {
+                errorMessage = 'Payment was cancelled';
+              } else if (error.message.includes('Payment gateway not configured')) {
+                errorMessage = 'Payment service not available. Please contact support.';
+              } else {
+                errorMessage = error.message || 'An error occurred during payment';
+              }
+
+              Toast.show({
+                type: 'error',
+                text1: 'Payment Failed',
+                text2: errorMessage,
+              });
+            } finally {
+              // setPurchasing(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
     const getStatusColor = useCallback((stat) => {
       switch (stat) {
