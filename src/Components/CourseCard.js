@@ -42,8 +42,8 @@ const CourseCard = memo(
       }
       if (navigation) {
         if (isPurchased) {
-          // Navigate to MyCourseDetails for purchased courses
-          navigation.navigate('MyCourseDetails', { courseId });
+          // Navigate to VideoPlayer for purchased courses
+          navigation.navigate('VideoPlayer', { courseId });
         } else {
           // Navigate to BuyCourseDetail for unpurchased courses
           navigation.navigate('BuyCourseDetail', { courseId });

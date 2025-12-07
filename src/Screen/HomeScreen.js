@@ -42,13 +42,25 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   const fetchCourses = async () => {
     try {
       setLoading(true);
-      const fetchedCourses = await getAllCourses();
-      setCourses(fetchedCourses);
+      const result = await getAllCourses();
+
+      if (result.success) {
+        setCourses(result.courses);
+        console.log(`📚 Loaded ${result.courses.length} courses`);
+      } else {
+        console.error('❌ Failed to fetch courses:', result.error);
+        setCourses([]);
+      }
 
       // If user is logged in, fetch their enrolled courses
       if (user) {
-        const enrolledCourses = await getUserCourses(user.uid);
-        setUserEnrolledCourses(enrolledCourses);
+        const enrolledResult = await getUserCourses(user.uid);
+        if (enrolledResult.success) {
+          setUserEnrolledCourses(enrolledResult.courses);
+        } else {
+          console.error('❌ Failed to fetch user courses:', enrolledResult.error);
+          setUserEnrolledCourses([]);
+        }
       } else {
         setUserEnrolledCourses([]);
       }
@@ -69,6 +81,18 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   };
 
   const availableCourses = useMemo(() => {
+    // Safety check: ensure courses is an array
+    if (!courses || !Array.isArray(courses)) {
+      console.warn('⚠️ courses is not an array:', courses);
+      return [];
+    }
+
+    // Safety check: ensure userEnrolledCourses is an array
+    if (!userEnrolledCourses || !Array.isArray(userEnrolledCourses)) {
+      console.warn('⚠️ userEnrolledCourses is not an array:', userEnrolledCourses);
+      return courses; // Return all courses if we can't filter
+    }
+
     // Get IDs of user's enrolled courses
     const enrolledCourseIds = userEnrolledCourses.map(course => course.id);
 
@@ -77,6 +101,12 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   }, [courses, userEnrolledCourses]);
 
   const filteredCourses = useMemo(() => {
+    // Safety check: ensure availableCourses is an array
+    if (!availableCourses || !Array.isArray(availableCourses)) {
+      console.warn('⚠️ availableCourses is not an array:', availableCourses);
+      return [];
+    }
+
     if (!searchQuery.trim()) {
       return availableCourses;
     }
@@ -84,6 +114,7 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
     const query = searchQuery.toLowerCase().trim();
     return availableCourses.filter((course) => {
       return (
+        course.title &&
         course.title.toLowerCase().includes(query) ||
         (course.membershipType &&
           course.membershipType.toLowerCase().includes(query)) ||

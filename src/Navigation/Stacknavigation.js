@@ -5,6 +5,7 @@ import LoginScreen from '../Screen/LoginScreen'
 import HomeSCreen from '../Screen/HomeScreen'
 import FilterTabs from '../Components/FilterTabs'
 import AuthScreen from '../Screen/AuthScreen'
+import SearchBar from '../Components/SearchBar'
 const Stack = createNativeStackNavigator();
 
 const Stacknavigation = () => {
@@ -16,6 +17,8 @@ const Stacknavigation = () => {
                 <Stack.Screen name='Home' component={HomeSCreen} />
                 <Stack.Screen name='Filter' component={FilterTabs} />
                 <Stack.Screen name='Filter' component={AuthScreen} />
+                <Stack.Screen name='Search' component={SearchBar} />
+
 
 
 

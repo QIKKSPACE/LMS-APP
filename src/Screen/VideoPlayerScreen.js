@@ -26,6 +26,7 @@ const VideoPlayerScreen = ({ route, navigation }) => {
   const { user } = useAuth();
   const [course, setCourse] = useState(null);
   const [currentLecture, setCurrentLecture] = useState(null);
+  const [currentSection, setCurrentSection] = useState(null);
   const [loading, setLoading] = useState(true);
   const [videoLoading, setVideoLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -41,14 +42,24 @@ const VideoPlayerScreen = ({ route, navigation }) => {
   const fetchCourseData = async () => {
     try {
       setLoading(true);
-      const courseData = await getCourseById(courseId);
+      const courseResult = await getCourseById(courseId);
+      const courseData = courseResult.success ? courseResult.course : null;
+
+      console.log('🎬 Course data received:', courseData);
 
       if (courseData && courseData.sections && courseData.sections.length > 0) {
+        console.log('✅ Found course with', courseData.sections.length, 'sections');
         setCourse(courseData);
         // Set first lecture as current
         const firstSection = courseData.sections[0];
+        console.log('📚 First section:', firstSection);
+        console.log('📹 First section lectures:', firstSection.lecturesList);
+
         if (firstSection.lecturesList && firstSection.lecturesList.length > 0) {
-          setCurrentLecture(firstSection.lecturesList[0]);
+          const firstLecture = firstSection.lecturesList[0];
+          console.log('🎥 Setting first lecture:', firstLecture);
+          setCurrentLecture(firstLecture);
+          setCurrentSection(firstSection);
         }
       } else {
         Alert.alert('Error', 'No video content available for this course');
@@ -63,8 +74,11 @@ const VideoPlayerScreen = ({ route, navigation }) => {
     }
   };
 
-  const handleLectureSelect = (lecture) => {
+  const handleLectureSelect = (lecture, section) => {
     setCurrentLecture(lecture);
+    if (section) {
+      setCurrentSection(section);
+    }
     setIsPlaying(false);
     setCurrentTime(0);
   };
@@ -79,9 +93,9 @@ const VideoPlayerScreen = ({ route, navigation }) => {
   };
 
   const handleVideoEnd = async () => {
-    if (currentLecture && user) {
+    if (currentLecture && currentSection && user) {
       // Mark lecture as completed
-      await toggleLectureCompletion(user.uid, courseId, currentLecture.id);
+      await toggleLectureCompletion(user.uid, courseId, currentSection.id, currentLecture.id);
     }
   };
 
@@ -145,21 +159,31 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       <View style={styles.videoContainer}>
         {currentLecture && (
           <>
-            <Video
-              ref={videoRef}
-              source={{ uri: currentLecture.videoUrl }}
-              style={styles.videoPlayer}
-              controls={true}
-              resizeMode="contain"
-              onLoad={handleVideoLoad}
-              onProgress={handleVideoProgress}
-              onEnd={handleVideoEnd}
-              onLoadStart={() => setVideoLoading(true)}
-              paused={!isPlaying}
-              fullscreen={isFullscreen}
-              onFullscreenPlayerWillPresent={() => setIsFullscreen(true)}
-              onFullscreenPlayerWillDismiss={() => setIsFullscreen(false)}
-            />
+            {currentLecture.videoUrl ? (
+              <Video
+                ref={videoRef}
+                source={{ uri: currentLecture.videoUrl }}
+                style={styles.videoPlayer}
+                controls={true}
+                resizeMode="contain"
+                onLoad={handleVideoLoad}
+                onProgress={handleVideoProgress}
+                onEnd={handleVideoEnd}
+                onLoadStart={() => setVideoLoading(true)}
+                paused={!isPlaying}
+                fullscreen={isFullscreen}
+                onFullscreenPlayerWillPresent={() => setIsFullscreen(true)}
+                onFullscreenPlayerWillDismiss={() => setIsFullscreen(false)}
+              />
+            ) : (
+              <View style={styles.noVideoContainer}>
+                <MaterialCommunityIcons name="video-off" size={64} color="#9CA3AF" />
+                <Text style={styles.noVideoText}>No video available for this lecture</Text>
+                <Text style={styles.noVideoSubText}>
+                  The video URL might be missing or corrupted
+                </Text>
+              </View>
+            )}
 
             {videoLoading && (
               <View style={styles.videoLoadingOverlay}>
@@ -205,7 +229,7 @@ const VideoPlayerScreen = ({ route, navigation }) => {
                     currentLecture?.id === lecture.id && styles.currentLectureItem,
                     lecture.isCompleted && styles.completedLectureItem
                   ]}
-                  onPress={() => handleLectureSelect(lecture)}
+                  onPress={() => handleLectureSelect(lecture, section)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.lectureItemLeft}>
@@ -335,9 +359,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
-  lectureInfo: {
-    padding: 16,
-    backgroundColor: '#111',
+  noVideoContainer: {
+    width: width,
+    height: width * 0.5625, // 16:9 aspect ratio
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noVideoText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  noVideoSubText: {
+    color: '#9CA3AF',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 32,
   },
   lectureTitle: {
     fontSize: 18,
