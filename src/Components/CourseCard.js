@@ -159,6 +159,12 @@ const CourseCard = memo(
     );
   };
 
+  const handleContinueLearning = () => {
+    if (navigation) {
+      navigation.navigate('VideoPlayer', { courseId });
+    }
+  };
+
     const getStatusColor = useCallback((stat) => {
       switch (stat) {
         case 'COMPLETED':
@@ -354,6 +360,34 @@ const CourseCard = memo(
                 {getExpiryText()}
               </Text>
             </View>
+          )}
+
+          {/* Continue Learning Button */}
+          {isPurchased && progress > 0 && progress < 100 && (
+            <TouchableOpacity
+              onPress={handleContinueLearning}
+              activeOpacity={0.8}
+              style={styles.continueLearningSection}
+            >
+              <LinearGradient
+                colors={['#10b981', '#059669', '#047857']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.continueLearningButton}
+              >
+                <MaterialCommunityIcons
+                  name="play-circle-outline"
+                  size={20}
+                  color="#fff"
+                />
+                <Text style={styles.continueLearningButtonText}>Continue Learning</Text>
+                <MaterialCommunityIcons
+                  name="arrow-right"
+                  size={16}
+                  color="#fff"
+                />
+              </LinearGradient>
+            </TouchableOpacity>
           )}
 
           {/* Buy Button */}
@@ -650,6 +684,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',
+  },
+
+  // Continue Learning Section
+  continueLearningSection: {
+    marginTop: 12,
+  },
+  continueLearningButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 16,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  continueLearningButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
   },
 });
 
