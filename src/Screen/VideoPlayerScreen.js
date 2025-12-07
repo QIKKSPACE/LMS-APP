@@ -147,11 +147,13 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <MaterialCommunityIcons name="arrow-left" size={20} color="#FFF" />
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {course.title}
-        </Text>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle} numberOfLines={2}>
+            {course.title}
+          </Text>
+        </View>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -192,12 +194,26 @@ const VideoPlayerScreen = ({ route, navigation }) => {
             )}
 
             {/* Current Lecture Info */}
-            <View style={styles.lectureInfo}>
-              <Text style={styles.lectureTitle}>{currentLecture.title}</Text>
-              <Text style={styles.lectureDuration}>
-                Duration: {currentLecture.duration}
-              </Text>
-            </View>
+            <LinearGradient
+              colors={['rgba(0,0,0,0.9)', 'rgba(0,0,0,0.7)']}
+              style={styles.lectureInfoContainer}
+            >
+              <View style={styles.lectureInfo}>
+                <Text style={styles.lectureTitle}>{currentLecture.title}</Text>
+                <View style={styles.lectureMeta}>
+                  <MaterialCommunityIcons name="clock-outline" size={14} color="#9CA3AF" />
+                  <Text style={styles.lectureDuration}>
+                    {currentLecture.duration}
+                  </Text>
+                  {currentLecture.isCompleted && (
+                    <View style={styles.completedBadge}>
+                      <MaterialCommunityIcons name="check-circle" size={14} color="#10B981" />
+                      <Text style={styles.completedText}>Completed</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </LinearGradient>
           </>
         )}
       </View>
@@ -211,13 +227,17 @@ const VideoPlayerScreen = ({ route, navigation }) => {
           {course.sections.map((section, sectionIndex) => (
             <View key={section.id} style={styles.sectionContainer}>
               <View style={styles.sectionHeader}>
-                <MaterialCommunityIcons name="book-open-variant" size={20} color="#DC2626" />
-                <Text style={styles.sectionTitle}>
-                  Chapter {sectionIndex + 1}: {section.title}
-                </Text>
-                <Text style={styles.sectionStats}>
-                  {section.completed}/{section.lectures} completed
-                </Text>
+                <View style={styles.sectionIconContainer}>
+                  <MaterialCommunityIcons name="book-open-variant" size={18} color="#DC2626" />
+                </View>
+                <View style={styles.sectionTitleContainer}>
+                  <Text style={styles.sectionTitle}>
+                    Chapter {sectionIndex + 1}: {section.title}
+                  </Text>
+                  <Text style={styles.sectionStats}>
+                    {section.completed}/{section.lectures} completed
+                  </Text>
+                </View>
               </View>
 
               {/* Lectures */}
@@ -326,27 +346,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 32,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     backgroundColor: '#000',
+    paddingTop: 40,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitleContainer: {
+    flex: 1,
+    marginHorizontal: 16,
+    justifyContent: 'center',
   },
   headerTitle: {
-    flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#FFF',
     textAlign: 'center',
-    marginHorizontal: 16,
+    lineHeight: 22,
   },
   headerSpacer: {
-    width: 40,
+    width: 44,
   },
   videoContainer: {
     backgroundColor: '#000',
+    position: 'relative',
   },
   videoPlayer: {
-    width: width,
-    height: width * 0.5625, // 16:9 aspect ratio
+    width: '100%',
+    aspectRatio: 16 / 9,
     backgroundColor: '#000',
   },
   videoLoadingOverlay: {
@@ -357,14 +391,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
   },
   noVideoContainer: {
-    width: width,
-    height: width * 0.5625, // 16:9 aspect ratio
+    width: '100%',
+    aspectRatio: 16 / 9,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
   noVideoText: {
     color: '#FFF',
@@ -379,68 +414,117 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingHorizontal: 32,
   },
+  lectureInfoContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  lectureInfo: {
+    gap: 8,
+  },
   lectureTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#FFF',
-    marginBottom: 4,
+    lineHeight: 22,
+  },
+  lectureMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   lectureDuration: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  completedText: {
+    fontSize: 11,
+    color: '#10B981',
+    fontWeight: '600',
   },
   contentContainer: {
     flex: 1,
     backgroundColor: '#111',
   },
   chaptersContainer: {
-    padding: 16,
+    padding: 20,
+    paddingTop: 24,
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
     color: '#FFF',
-    marginBottom: 16,
+    marginBottom: 20,
+    letterSpacing: -0.5,
   },
   sectionContainer: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   sectionHeader: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    gap: 12,
+  },
+  sectionIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
+    marginTop: 2,
+  },
+  sectionTitleContainer: {
+    flex: 1,
   },
   sectionStats: {
     fontSize: 12,
     color: '#9CA3AF',
-    marginLeft: 'auto',
+    fontWeight: '500',
+    marginTop: 4,
   },
   lectureItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: 14,
     backgroundColor: '#1A1A1A',
-    borderRadius: 8,
-    marginBottom: 8,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   currentLectureItem: {
-    backgroundColor: '#DC2626',
+    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+    borderColor: '#DC2626',
   },
   completedLectureItem: {
-    backgroundColor: '#065F46',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   lectureItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 12,
+    gap: 14,
   },
   lectureNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
@@ -460,17 +544,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FFF',
-    marginBottom: 2,
+    marginBottom: 3,
+    lineHeight: 18,
   },
   currentLectureTitle: {
     color: '#FFF',
+    fontWeight: '700',
   },
   completedLectureTitle: {
-    color: '#FFF',
+    color: '#E5E7EB',
   },
   lectureItemDuration: {
     fontSize: 12,
     color: '#9CA3AF',
+    fontWeight: '500',
   },
   lectureItemRight: {
     flexDirection: 'row',
@@ -479,14 +566,15 @@ const styles = StyleSheet.create({
   },
   previewBadge: {
     backgroundColor: '#10B981',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   previewText: {
     fontSize: 10,
     fontWeight: '700',
     color: '#FFF',
+    letterSpacing: 0.5,
   },
 });
 

@@ -10,6 +10,7 @@ import {
   Image,
   Animated,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { getUserCourses } from '../Services/courseService';
 import { useAuth } from '../Context/AuthContext';
@@ -18,7 +19,7 @@ import { fixBrokenProgressDocuments, checkIfMigrationNeeded} from '../unities/mi
 import Toast from 'react-native-toast-message';
 import CourseCard from '../Components/CourseCard';
 import FilterTabs from '../Components/FilterTabs';
-import SearchBar from '../Components/SearchBar';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 
 const { width } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -234,14 +235,28 @@ const CoursesScreen = ({ onCourseClick, navigation }) => {
         </View>
       </View>
 
-      {/* Search Bar */}
+      {/* Search Input */}
       <View style={styles.searchContainer}>
-        <SearchBar
-          value={searchQuery}
-          onChange={setSearchQuery}
-          onClear={handleClearSearch}
-          placeholder="Search your courses..."
-        />
+        <View style={styles.searchInputContainer}>
+          <Icon name="search" size={20} color="#999" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInputWithIcon}
+            placeholder="Search courses..."
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            blurOnSubmit={false}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            enablesReturnKeyAutomatically={true}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={handleClearSearch} style={styles.clearIcon}>
+              <Icon name="close" size={20} color="#999" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Filter Tabs */}
@@ -317,30 +332,41 @@ const CoursesScreen = ({ onCourseClick, navigation }) => {
     return null;
   };
 
-  const renderCourseItem = ({ item, index }) => (
-    <View style={[styles.courseCard, isTablet && styles.courseCardTablet]}>
-      <CourseCard
-        courseId={item.id}
-        title={item.title}
-        courseTitle={item.courseTitle}
-        courseName={item.courseName}
-        membershipType={item.membershipType}
-        thumbnail={item.thumbnail}
-        courseThumbnail={item.courseThumbnail}
-        thumbnailUrl={item.thumbnailUrl}
-        imageUrl={item.imageUrl}
-        status={item.status}
-        progress={item.progress || 0}
-        chapters={item.chapters || 0}
-        isPurchased={true}
-        price={item.price}
-        expiryDate={item.expiryDate}
-        showStatus={false}
-        onCourseClick={onCourseClick}
-        navigation={navigation}
-      />
-    </View>
-  );
+  const renderCourseItem = ({ item, index }) => {
+    // Debug: Log course data to see what we're working with
+    console.log(`📚 MyCourse - Course Item ${index + 1}:`, {
+      title: item.title || item.courseTitle,
+      id: item.id,
+      progress: item.progress,
+      status: item.status,
+      isExpired: item.isExpired
+    });
+
+    return (
+      <View style={[styles.courseCard, isTablet && styles.courseCardTablet]}>
+        <CourseCard
+          courseId={item.id}
+          title={item.title || item.courseTitle}
+          courseTitle={item.courseTitle}
+          courseName={item.courseName}
+          membershipType={item.membershipType}
+          thumbnail={item.thumbnail}
+          courseThumbnail={item.courseThumbnail}
+          thumbnailUrl={item.thumbnailUrl}
+          imageUrl={item.imageUrl}
+          status={item.status}
+          progress={item.progress || 0}
+          chapters={item.chapters || 0}
+          isPurchased={true}
+          price={item.price}
+          expiryDate={item.expiryDate}
+          showStatus={false}
+          onCourseClick={onCourseClick}
+          navigation={navigation}
+        />
+      </View>
+    );
+  };
 
   // Loading state
   if (isLoading) {
@@ -467,26 +493,30 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     gap: 4,
+    paddingVertical:25
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginVertical:-11
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '800',
     color: '#111827',
+    
   },
   logo: {
-    width: 40,
-    height: 40,
+    width: 60,
+    height: 60,
     borderRadius: 20,
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#6b7280',
     marginTop: 4,
+    marginVertical:-24
   },
   searchContainer: {
     backgroundColor: '#fff',
@@ -494,6 +524,26 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInputWithIcon: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#111827',
+  },
+  clearIcon: {
+    marginLeft: 8,
+    padding: 4,
   },
   tabsContainer: {
     backgroundColor: '#fff',

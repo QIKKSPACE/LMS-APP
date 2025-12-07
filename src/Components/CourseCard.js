@@ -362,8 +362,18 @@ const CourseCard = memo(
             </View>
           )}
 
+          {/* Debug: Log Continue Learning button conditions */}
+          {(() => {
+            console.log(`🔍 Continue Learning conditions for: ${title}`);
+            console.log(`  - isPurchased: ${isPurchased}`);
+            console.log(`  - progress: ${progress}%`);
+            console.log(`  - should show: ${isPurchased && progress > 0 && progress < 100}`);
+            return null;
+          })()}
+
           {/* Continue Learning Button */}
-          {isPurchased && progress > 0 && progress < 100 && (
+          {/* TEMP: Show for any purchased course to test visibility */}
+          {isPurchased && (
             <TouchableOpacity
               onPress={handleContinueLearning}
               activeOpacity={0.8}
