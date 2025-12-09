@@ -37,12 +37,14 @@ Update `src/firebase.js` with your actual Firebase config:
 
 ```javascript
 const firebaseConfig = {
-  apiKey: "your-actual-api-key",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "your-actual-sender-id",
-  appId: "your-actual-app-id"
+  apiKey: "AIzaSyCLhGlh_Taw-aRI7vEQBEzkzrjeuAKUxNc",
+    authDomain: "stf-web-34a3b.firebaseapp.com",
+    databaseURL: "https://stf-web-34a3b-default-rtdb.firebaseio.com",
+    projectId: "stf-web-34a3b",
+    storageBucket: "stf-web-34a3b.firebasestorage.app",
+    messagingSenderId: "311427704953",
+    appId: "1:311427704953:web:a93b0b28026b4d140b0ca8",
+    measurementId: "G-79FBF73WJM"
 };
 ```
 

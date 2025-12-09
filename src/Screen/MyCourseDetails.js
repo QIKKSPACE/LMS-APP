@@ -2,32 +2,27 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
   Dimensions,
   StatusBar,
-  ToastAndroid,
   Platform,
-  Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
 import Video from 'react-native-video';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { getCourseById, toggleLectureCompletion as toggleLectureInFirestore } from '../Services/courseService';
 import { initializeCourseProgress, toggleLectureCompletion } from '../unities/progressTracker';
 import { checkCourseExpiry } from '../unities/courseExpiry';
 import { useAuth } from '../Context/AuthContext';
+import Toast from 'react-native-toast-message';
 
 const { width, height } = Dimensions.get('window');
 
 const MyCourseDetails = ({ route, navigation }) => {
-  const { courseId } = route.params || {};
+  const { courseId } = route.params;
   const { user } = useAuth();
-
-  const onBack = () => {
-    navigation.goBack();
-  };
   const [course, setCourse] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSection, setSelectedSection] = useState(null);
@@ -36,18 +31,11 @@ const MyCourseDetails = ({ route, navigation }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
   const [hasMarkedComplete, setHasMarkedComplete] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const videoRef = useRef(null);
 
-  // Toast helper function
-  const showToast = (message, duration = 'SHORT') => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, duration === 'SHORT' ? ToastAndroid.SHORT : ToastAndroid.LONG);
-    } else {
-      Alert.alert('', message);
-    }
-  };
-
-  // ✅ Fetch course and initialize progress
+  // Fetch course and initialize progress
   useEffect(() => {
     const fetchCourse = async () => {
       if (!courseId || !user) {
@@ -65,20 +53,15 @@ const MyCourseDetails = ({ route, navigation }) => {
           console.log('✅ Course fetched:', result.course);
           console.log('📊 Sections found:', result.course.sections?.length || 0);
 
-          // Get saved progress from enrollment data
-          const { getUserCourses } = await import('../Services/courseService');
-          const userCourses = await getUserCourses(user.uid);
-          const courseEnrollment = userCourses.find(course => course.id === courseId);
-
-          console.log('📈 Progress data:', courseEnrollment);
+          // Get saved progress from Firestore
+          const { getCourseProgress } = await import('../Services/courseService');
+          const progressResult = await getCourseProgress(user.uid, courseId);
+          
+          console.log('📈 Progress data:', progressResult);
 
           // Initialize course with progress
-          const savedProgress = courseEnrollment
-            ? {
-                progress: courseEnrollment.progress || 0,
-                completedLectures: courseEnrollment.completedLectures || [],
-                status: courseEnrollment.status || 'IN_PROGRESS'
-              }
+          const savedProgress = progressResult.success && progressResult.progress 
+            ? progressResult.progress 
             : { progress: 0, completedLectures: [], status: 'IN_PROGRESS' };
 
           const initializedCourse = initializeCourseProgress(result.course, savedProgress);
@@ -100,11 +83,17 @@ const MyCourseDetails = ({ route, navigation }) => {
           }
         } else {
           console.error('❌ Failed to fetch course:', result.error);
-          showToast('Failed to load course');
+          Toast.show({
+            type: 'error',
+            text1: 'Failed to load course',
+          });
         }
       } catch (error) {
         console.error('❌ Error fetching course:', error);
-        showToast('An error occurred while loading the course');
+        Toast.show({
+          type: 'error',
+          text1: 'An error occurred while loading the course',
+        });
       } finally {
         setIsLoading(false);
       }
@@ -129,13 +118,16 @@ const MyCourseDetails = ({ route, navigation }) => {
     setIsPlaying(true);
     setVideoProgress(0);
     setHasMarkedComplete(false);
+    setCurrentTime(0);
   };
 
-  // ✅ Auto-mark lecture as complete when 90% watched
+  // Auto-mark lecture as complete when 90% watched
   const handleVideoProgress = async (data) => {
     if (!selectedLecture || !selectedSection) return;
     
     const progress = (data.currentTime / data.seekableDuration) * 100;
+    setCurrentTime(data.currentTime);
+    setDuration(data.seekableDuration);
     setVideoProgress(progress);
     
     // Auto-complete when 90% watched and not already marked complete
@@ -144,11 +136,15 @@ const MyCourseDetails = ({ route, navigation }) => {
       setHasMarkedComplete(true);
       
       await handleToggleLectureCompletion(selectedSection.id, selectedLecture.id);
-      showToast('✅ Lecture completed!');
+      
+      Toast.show({
+        type: 'success',
+        text1: '✅ Lecture completed!',
+      });
     }
   };
 
-  // ✅ Handle lecture completion toggle with proper Firestore sync
+  // Handle lecture completion toggle with proper Firestore sync
   const handleToggleLectureCompletion = async (sectionId, lectureId) => {
     if (!course || !user) return;
     
@@ -166,10 +162,16 @@ const MyCourseDetails = ({ route, navigation }) => {
       
       if (result.success) {
         console.log('✅ Firestore updated successfully');
-        showToast('Progress saved!');
+        Toast.show({
+          type: 'success',
+          text1: 'Progress saved!',
+        });
       } else {
         console.error('❌ Failed to update Firestore:', result.error);
-        showToast('Failed to save progress');
+        Toast.show({
+          type: 'error',
+          text1: 'Failed to save progress',
+        });
         // Revert local state if Firestore update failed
         setCourse(course);
       }
@@ -185,54 +187,32 @@ const MyCourseDetails = ({ route, navigation }) => {
       }
     } catch (error) {
       console.error('❌ Error toggling lecture completion:', error);
-      showToast('Failed to update progress');
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to update progress',
+      });
     }
   };
 
-  const handlePlayPause = () => {
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleNextLecture = () => {
-    if (!course || !selectedSection || !selectedLecture) return;
-    
-    const currentSectionIndex = course.sections.findIndex(s => s.id === selectedSection.id);
-    const currentLectureIndex = selectedSection.lecturesList.findIndex(l => l.id === selectedLecture.id);
-    
-    if (currentLectureIndex < selectedSection.lecturesList.length - 1) {
-      const nextLecture = selectedSection.lecturesList[currentLectureIndex + 1];
-      selectLecture(selectedSection, nextLecture);
-    } else if (currentSectionIndex < course.sections.length - 1) {
-      const nextSection = course.sections[currentSectionIndex + 1];
-      if (nextSection.lecturesList && nextSection.lecturesList.length > 0) {
-        selectLecture(nextSection, nextSection.lecturesList[0]);
-      }
-    }
-  };
-
-  const handlePreviousLecture = () => {
-    if (!course || !selectedSection || !selectedLecture) return;
-    
-    const currentSectionIndex = course.sections.findIndex(s => s.id === selectedSection.id);
-    const currentLectureIndex = selectedSection.lecturesList.findIndex(l => l.id === selectedLecture.id);
-    
-    if (currentLectureIndex > 0) {
-      const prevLecture = selectedSection.lecturesList[currentLectureIndex - 1];
-      selectLecture(selectedSection, prevLecture);
-    } else if (currentSectionIndex > 0) {
-      const prevSection = course.sections[currentSectionIndex - 1];
-      if (prevSection.lecturesList && prevSection.lecturesList.length > 0) {
-        selectLecture(prevSection, prevSection.lecturesList[prevSection.lecturesList.length - 1]);
-      }
+  const handleVideoEnd = async () => {
+    console.log('🎬 Video ended');
+    if (selectedLecture && !selectedLecture.isCompleted) {
+      await handleToggleLectureCompletion(selectedSection.id, selectedLecture.id);
+      Toast.show({
+        type: 'success',
+        text1: '✅ Lecture completed!',
+      });
     }
   };
 
   const getTotalLectures = () => {
-    return course?.sections.reduce((sum, s) => sum + (s.lecturesList?.length || 0), 0) || 0;
+    if (!course?.sections) return 0;
+    return course.sections.reduce((sum, s) => sum + (s.lecturesList?.length || 0), 0);
   };
 
   const getCompletedLectures = () => {
-    return course?.sections.reduce((sum, s) => sum + (s.lecturesList?.filter(l => l.isCompleted).length || 0), 0) || 0;
+    if (!course?.sections) return 0;
+    return course.sections.reduce((sum, s) => sum + (s.lecturesList?.filter(l => l.isCompleted).length || 0), 0);
   };
 
   // Loading state
@@ -240,7 +220,7 @@ const MyCourseDetails = ({ route, navigation }) => {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#111827" />
-        <View style={styles.centerContent}>
+        <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#9333ea" />
           <Text style={styles.loadingText}>Loading course...</Text>
         </View>
@@ -253,13 +233,13 @@ const MyCourseDetails = ({ route, navigation }) => {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#111827" />
-        <View style={styles.centerContent}>
+        <View style={styles.centerContainer}>
           <Text style={styles.errorText}>Course not found</Text>
           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={onBack}
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
           >
-            <Text style={styles.buttonText}>Go Back</Text>
+            <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -271,18 +251,16 @@ const MyCourseDetails = ({ route, navigation }) => {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#1f2937" />
-        
-        {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.headerButton}>
-            <Icon name="arrow-back" size={20} color="#fff" />
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Icon name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {course.courseTitle || course.title}
           </Text>
         </View>
 
-        <View style={styles.centerContent}>
+        <View style={styles.centerContainer}>
           <View style={styles.warningIcon}>
             <Text style={styles.warningEmoji}>⚠️</Text>
           </View>
@@ -291,10 +269,10 @@ const MyCourseDetails = ({ route, navigation }) => {
             This course doesn't have any sections or lectures yet.
           </Text>
           <TouchableOpacity
-            style={[styles.primaryButton, { backgroundColor: '#dc2626' }]}
-            onPress={onBack}
+            style={[styles.backButton, { backgroundColor: '#dc2626' }]}
+            onPress={() => navigation.goBack()}
           >
-            <Text style={styles.buttonText}>Go Back</Text>
+            <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -307,7 +285,7 @@ const MyCourseDetails = ({ route, navigation }) => {
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.headerButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backIconButton}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -315,52 +293,52 @@ const MyCourseDetails = ({ route, navigation }) => {
             {course.courseTitle || course.title}
           </Text>
         </View>
-        <Text style={styles.progressBadge}>{course.progress || 0}%</Text>
+        <Text style={styles.progressBadge}>
+          {course.progress || 0}%
+        </Text>
       </View>
 
-      <ScrollView style={styles.scrollContainer}>
-        {/* Video Section */}
-        <View style={styles.videoContainer}>
-          {selectedLecture && selectedLecture.url ? (
-            <Video
-              ref={videoRef}
-              source={{ uri: selectedLecture.url }}
-              style={styles.video}
-              controls={true}
-              resizeMode="contain"
-              onProgress={handleVideoProgress}
-              onEnd={async () => {
-                console.log('🎬 Video ended');
-                if (!selectedLecture.isCompleted) {
-                  await handleToggleLectureCompletion(selectedSection.id, selectedLecture.id);
-                  showToast('✅ Lecture completed!');
-                }
-              }}
-              paused={!isPlaying}
-            />
-          ) : (
-            <View style={styles.videoPlaceholder}>
-              <TouchableOpacity
-                style={styles.playButton}
-                onPress={handlePlayPause}
-              >
-                <Icon
-                  name={isPlaying ? 'pause' : 'play-arrow'}
-                  size={40}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-              <Text style={styles.videoPlaceholderText}>
-                {selectedLecture ? selectedLecture.title : 'Select a lecture'}
+      {/* Video Player */}
+      <View style={styles.videoContainer}>
+        {selectedLecture && selectedLecture.url ? (
+          <Video
+            ref={videoRef}
+            source={{ uri: selectedLecture.url }}
+            style={styles.video}
+            controls={true}
+            resizeMode="contain"
+            onProgress={handleVideoProgress}
+            onEnd={handleVideoEnd}
+            paused={!isPlaying}
+            onLoad={(data) => setDuration(data.duration)}
+          />
+        ) : (
+          <View style={styles.videoPlaceholder}>
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={() => setIsPlaying(!isPlaying)}
+            >
+              <Icon
+                name={isPlaying ? 'pause' : 'play-arrow'}
+                size={40}
+                color="#fff"
+              />
+            </TouchableOpacity>
+            <Text style={styles.videoPlaceholderText}>
+              {selectedLecture ? selectedLecture.title : 'Select a lecture'}
+            </Text>
+            {selectedLecture && !selectedLecture.url && (
+              <Text style={styles.videoPlaceholderSubtext}>
+                Video URL not available
               </Text>
-              {selectedLecture && !selectedLecture.url && (
-                <Text style={styles.videoPlaceholderSubtext}>Video URL not available</Text>
-              )}
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        )}
+      </View>
 
-        {/* Progress Bar Section */}
+      {/* Course Content */}
+      <View style={styles.contentContainer}>
+        {/* Progress Bar */}
         <View style={styles.progressSection}>
           <View style={styles.progressHeader}>
             <Text style={styles.progressLabel}>Course Progress</Text>
@@ -368,7 +346,10 @@ const MyCourseDetails = ({ route, navigation }) => {
           </View>
           <View style={styles.progressBarContainer}>
             <View
-              style={[styles.progressBarFill, { width: `${course.progress || 0}%` }]}
+              style={[
+                styles.progressBar,
+                { width: `${course.progress || 0}%` },
+              ]}
             />
           </View>
           <Text style={styles.progressSubtext}>
@@ -377,15 +358,14 @@ const MyCourseDetails = ({ route, navigation }) => {
         </View>
 
         {/* Sections List */}
-        <View style={styles.sectionsContainer}>
+        <ScrollView style={styles.sectionsList} showsVerticalScrollIndicator={false}>
           {course.sections.map((section) => (
-            <View key={section.id} style={styles.sectionBlock}>
-              {/* Section Header */}
+            <View key={section.id} style={styles.sectionItem}>
               <TouchableOpacity
                 style={styles.sectionHeader}
                 onPress={() => toggleSection(section.id)}
               >
-                <View style={styles.sectionHeaderLeft}>
+                <View style={styles.sectionTitleContainer}>
                   <Text style={styles.sectionTitle}>{section.title}</Text>
                   <Text style={styles.sectionSubtitle}>
                     {section.lecturesList?.filter(l => l.isCompleted).length || 0} /{' '}
@@ -399,49 +379,47 @@ const MyCourseDetails = ({ route, navigation }) => {
                 />
               </TouchableOpacity>
 
-              {/* Lectures List */}
               {expandedSections.has(section.id) && section.lecturesList && (
-                <View style={styles.lecturesContainer}>
+                <View style={styles.lecturesList}>
                   {section.lecturesList.map((lecture) => (
-                    <View key={lecture.id}>
+                    <TouchableOpacity
+                      key={lecture.id}
+                      style={[
+                        styles.lectureItem,
+                        selectedLecture?.id === lecture.id && styles.lectureItemActive,
+                      ]}
+                      onPress={() => selectLecture(section, lecture)}
+                    >
                       <TouchableOpacity
-                        style={[
-                          styles.lectureItem,
-                          selectedLecture?.id === lecture.id && styles.lectureItemActive,
-                        ]}
-                        onPress={() => selectLecture(section, lecture)}
+                        onPress={() => handleToggleLectureCompletion(section.id, lecture.id)}
+                        style={styles.checkboxContainer}
                       >
-                        <View style={styles.lectureLeft}>
-                          <TouchableOpacity
-                            onPress={() => handleToggleLectureCompletion(section.id, lecture.id)}
-                            style={styles.checkboxButton}
-                          >
-                            <Icon
-                              name={lecture.isCompleted ? 'check-circle' : 'radio-button-unchecked'}
-                              size={18}
-                              color={lecture.isCompleted ? '#10b981' : '#6b7280'}
-                            />
-                          </TouchableOpacity>
-                          <Text
-                            style={[
-                              styles.lectureTitle,
-                              lecture.isCompleted && styles.lectureTitleCompleted,
-                            ]}
-                            numberOfLines={2}
-                          >
-                            {lecture.title}
-                          </Text>
-                        </View>
-                        <Text style={styles.lectureDuration}>{lecture.duration || '5'} min</Text>
+                        <Icon
+                          name={lecture.isCompleted ? 'check-circle' : 'radio-button-unchecked'}
+                          size={18}
+                          color={lecture.isCompleted ? '#10b981' : '#6b7280'}
+                        />
                       </TouchableOpacity>
-                    </View>
+                      <Text
+                        style={[
+                          styles.lectureTitle,
+                          lecture.isCompleted && styles.lectureTitleCompleted,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {lecture.title}
+                      </Text>
+                      <Text style={styles.lectureDuration}>
+                        {lecture.duration || '5'} min
+                      </Text>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
             </View>
           ))}
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </View>
   );
 };
@@ -451,10 +429,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#111827',
   },
-  scrollContainer: {
-    flex: 1,
-  },
-  centerContent: {
+  centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -463,32 +438,19 @@ const styles = StyleSheet.create({
   loadingText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '500',
     marginTop: 16,
+    fontWeight: '500',
   },
   errorText: {
     color: '#fff',
     fontSize: 18,
     marginBottom: 16,
-    textAlign: 'center',
   },
   errorSubtext: {
     color: '#9ca3af',
     fontSize: 14,
     marginBottom: 16,
     textAlign: 'center',
-    paddingHorizontal: 20,
-  },
-  primaryButton: {
-    backgroundColor: '#9333ea',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
   },
   warningIcon: {
     width: 64,
@@ -502,35 +464,45 @@ const styles = StyleSheet.create({
   warningEmoji: {
     fontSize: 32,
   },
+  backButton: {
+    backgroundColor: '#9333ea',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1f2937',
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
     paddingHorizontal: 16,
     paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#374151',
   },
-  headerButton: {
-    padding: 4,
+  backIconButton: {
     marginRight: 12,
   },
   headerTitleContainer: {
     flex: 1,
+    marginRight: 12,
   },
   headerTitle: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '500',
   },
   progressBadge: {
     color: '#10b981',
     fontSize: 12,
     fontWeight: 'bold',
-    marginLeft: 8,
   },
   videoContainer: {
-    width: '100%',
+    width: width,
     height: height * 0.3,
     backgroundColor: '#000',
   },
@@ -542,13 +514,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   playButton: {
     width: 80,
     height: 80,
-    borderRadius: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -562,18 +533,20 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontSize: 14,
     marginTop: 8,
-    textAlign: 'center',
+  },
+  contentContainer: {
+    flex: 1,
+    backgroundColor: '#1f2937',
   },
   progressSection: {
+    padding: 16,
     backgroundColor: '#111827',
     borderBottomWidth: 1,
     borderBottomColor: '#374151',
-    padding: 16,
   },
   progressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 8,
   },
   progressLabel: {
@@ -593,7 +566,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     overflow: 'hidden',
   },
-  progressBarFill: {
+  progressBar: {
     height: '100%',
     backgroundColor: '#10b981',
     borderRadius: 4,
@@ -603,21 +576,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  sectionsContainer: {
+  sectionsList: {
+    flex: 1,
     padding: 16,
   },
-  sectionBlock: {
+  sectionItem: {
     marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#374151',
     padding: 12,
     borderRadius: 8,
   },
-  sectionHeaderLeft: {
+  sectionTitleContainer: {
     flex: 1,
   },
   sectionTitle: {
@@ -630,13 +603,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  lecturesContainer: {
+  lecturesList: {
     marginTop: 8,
   },
   lectureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#1f2937',
     padding: 8,
     borderRadius: 4,
@@ -647,13 +619,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#9333ea',
   },
-  lectureLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkboxButton: {
-    padding: 4,
+  checkboxContainer: {
     marginRight: 8,
   },
   lectureTitle: {

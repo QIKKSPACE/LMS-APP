@@ -42,32 +42,56 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
   const fetchCourses = async () => {
     try {
       setLoading(true);
+      console.log('🔄 Starting fetchCourses...');
+
+      // First, fetch all courses
+      console.log('📚 Fetching all courses...');
       const result = await getAllCourses();
 
       if (result.success) {
         setCourses(result.courses);
-        console.log(`📚 Loaded ${result.courses.length} courses`);
+        console.log(`✅ Loaded ${result.courses.length} courses`);
       } else {
         console.error('❌ Failed to fetch courses:', result.error);
         setCourses([]);
       }
 
+      // Debug user state
+      console.log('🔍 User state check:', {
+        userExists: !!user,
+        userObject: user,
+        userId: user?.uid,
+        userEmail: user?.email
+      });
+
       // If user is logged in, fetch their enrolled courses
-      if (user) {
-        const enrolledResult = await getUserCourses(user.uid);
-        if (enrolledResult.success) {
-          setUserEnrolledCourses(enrolledResult.courses);
-        } else {
-          console.error('❌ Failed to fetch user courses:', enrolledResult.error);
+      if (user && user.uid) {
+        console.log('👤 Fetching courses for user:', user.uid);
+        try {
+          const enrolledResult = await getUserCourses(user.uid);
+          console.log('📋 getUserCourses result:', enrolledResult);
+
+          if (enrolledResult.success) {
+            setUserEnrolledCourses(enrolledResult.courses);
+            console.log(`✅ Loaded ${enrolledResult.courses.length} enrolled courses`);
+          } else {
+            console.error('❌ Failed to fetch user courses:', enrolledResult.error);
+            console.error('❌ Full error object:', enrolledResult);
+            setUserEnrolledCourses([]);
+          }
+        } catch (userCoursesError) {
+          console.error('❌ Exception in getUserCourses:', userCoursesError);
           setUserEnrolledCourses([]);
         }
       } else {
+        console.log('ℹ️ No user logged in or user.uid missing');
         setUserEnrolledCourses([]);
       }
 
       setError(null);
     } catch (err) {
-      console.error('Error loading courses:', err);
+      console.error('❌ Error in fetchCourses:', err);
+      console.error('❌ Error stack:', err.stack);
       setError('Failed to load courses. Please try again.');
     } finally {
       setLoading(false);

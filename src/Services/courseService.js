@@ -1,5 +1,101 @@
 // src/services/courseService.js - FIXED PROGRESS TRACKING
-import { db } from "../firebase";
+import firestore from '@react-native-firebase/firestore';
+import auth from '@react-native-firebase/auth';
+
+// Use firestore() directly to avoid any import issues
+const db = firestore();
+
+/**
+ * Check if there are Firebase Security Rules issues
+ */
+const checkFirestoreAccess = async (userId) => {
+  try {
+    console.log('🔍 Checking Firestore access patterns...');
+
+    // Test 1: Try to read the user document with different methods
+    const userDocRef = db.collection('users').doc(userId);
+
+    // Method 1: Direct get
+    const directGet = await userDocRef.get();
+    console.log('📄 Direct get result:', {
+      exists: directGet.exists,
+      hasData: !!directGet.data(),
+      metadata: directGet.metadata
+    });
+
+    // Method 2: Collection query
+    const queryResult = await db.collection('users').where('uid', '==', userId).get();
+    console.log('📄 Query result:', {
+      size: queryResult.size,
+      empty: queryResult.empty,
+      docs: queryResult.docs.map(doc => ({ id: doc.id, hasData: !!doc.data() }))
+    });
+
+    return {
+      directAccess: directGet.exists && !!directGet.data(),
+      queryAccess: !queryResult.empty && queryResult.docs.every(doc => doc.data())
+    };
+
+  } catch (accessError) {
+    console.error('❌ Firestore access check failed:', accessError);
+    return {
+      directAccess: false,
+      queryAccess: false,
+      error: accessError.message
+    };
+  }
+};
+
+/**
+ * Repair corrupted user document using Firebase Auth data
+ */
+const repairUserDocument = async (userId) => {
+  try {
+    console.log('🔧 Attempting to repair corrupted user document:', userId);
+
+    // Get current authenticated user
+    const currentUser = auth().currentUser;
+    if (!currentUser || currentUser.uid !== userId) {
+      console.error('❌ Cannot repair user document - user not authenticated or UID mismatch');
+      return null;
+    }
+
+    // Create new user document from auth data
+    const repairedUserData = {
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+      mobileNumber: currentUser.phoneNumber || '',
+      address: '',
+      purchasedCourses: [],
+      createdAt: firestore.FieldValue.serverTimestamp(),
+      updatedAt: firestore.FieldValue.serverTimestamp()
+    };
+
+    console.log('🔧 Creating new user document with data:', {
+      uid: repairedUserData.uid,
+      email: repairedUserData.email,
+      name: repairedUserData.name
+    });
+
+    // Overwrite the corrupted document
+    await db.collection('users').doc(userId).set(repairedUserData);
+
+    console.log('✅ User document repaired successfully');
+    return repairedUserData;
+
+  } catch (repairError) {
+    console.error('❌ Failed to repair user document:', repairError);
+    return null;
+  }
+};
+
+// Test Firestore connection (only log once)
+if (!global.firestoreLogged) {
+  console.log('🔥 Firestore instance type:', typeof db);
+  console.log('🔥 Firestore initialized successfully');
+  global.firestoreLogged = true;
+}
 
 /**
  * ✅ FIXED: Transform Firestore course data with correct lecture counting
@@ -23,7 +119,6 @@ const transformCourseData = (courseId, firestoreData) => {
             title: lecture.lectureTitle || `Lecture ${lectureIndex + 1}`,
             duration: lecture.lectureDuration || '30',
             url: lecture.lectureUrl || '',
-            videoUrl: lecture.lectureUrl || '', // Add videoUrl for compatibility with VideoPlayerScreen
             order: lecture.lectureOrder || lectureIndex + 1,
             isPreviewFree: lecture.isPreviewFree || false,
             isCompleted: false,
@@ -102,28 +197,28 @@ const transformCourseData = (courseId, firestoreData) => {
 export const getAllCourses = async () => {
   try {
     console.log('📚 Fetching all courses from Firestore...');
+    console.log('🔥 Testing db.collection method exists:', typeof db.collection);
 
-    const coursesSnapshot = await db.collection('courses').get();
+    // Test basic Firestore connection
+    if (!db.collection || typeof db.collection !== 'function') {
+      throw new Error('db.collection is not a function - Firestore initialization issue');
+    }
+
+    const coursesCollection = db.collection('courses');
+    console.log('🔗 Collection reference created:', typeof coursesCollection);
+
+    const coursesSnapshot = await coursesCollection.get();
+    console.log('📄 Snapshot received:', {
+      exists: coursesSnapshot.exists,
+      size: coursesSnapshot.size,
+      empty: coursesSnapshot.empty
+    });
 
     const courses = [];
-
-    // React Native Firebase uses .docs property to get the array of documents
-    if (coursesSnapshot.docs && Array.isArray(coursesSnapshot.docs)) {
-      coursesSnapshot.docs.forEach((docSnapshot) => {
-        const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-        courses.push(courseData);
-      });
-    } else {
-      // Fallback method if .docs doesn't work
-      console.log('⚠️ Using alternative method to get documents');
-      const querySnapshot = coursesSnapshot;
-      if (querySnapshot && typeof querySnapshot.forEach === 'function') {
-        querySnapshot.forEach((docSnapshot) => {
-          const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-          courses.push(courseData);
-        });
-      }
-    }
+    coursesSnapshot.forEach((doc) => {
+      const courseData = transformCourseData(doc.id, doc.data());
+      courses.push(courseData);
+    });
 
     console.log(`✅ Fetched ${courses.length} courses from Firestore`);
     if (courses.length > 0) {
@@ -133,17 +228,16 @@ export const getAllCourses = async () => {
         totalLectures: courses[0].totalLectures,
         chapters: courses[0].chapters
       });
-    } else {
-      console.log('⚠️ No courses found or empty courses array');
     }
 
     return { success: true, courses };
   } catch (error) {
     console.error("❌ Error fetching courses:", error);
-    console.error("❌ Error details:", error.message, error.code);
+    console.error("❌ Error type:", error.constructor.name);
+    console.error("❌ Error message:", error.message);
     return {
       success: false,
-      error: "Failed to fetch courses",
+      error: `Failed to fetch courses: ${error.message}`,
       courses: []
     };
   }
@@ -192,6 +286,19 @@ export const getCourseById = async (courseId) => {
  */
 export const getCourseProgress = async (userId, courseId) => {
   try {
+    // Add validation for required parameters
+    if (!userId) {
+      console.error('❌ getCourseProgress: userId is required');
+      return { success: false, error: 'User ID is required', progress: null };
+    }
+
+    if (!courseId) {
+      console.error('❌ getCourseProgress: courseId is required');
+      return { success: false, error: 'Course ID is required', progress: null };
+    }
+
+    console.log('📊 Getting progress for userId:', userId, 'courseId:', courseId);
+
     const progressId = `${userId}_${courseId}`;
     const progressSnap = await db.collection('userCourseProgress').doc(progressId).get();
 
@@ -220,6 +327,7 @@ export const getCourseProgress = async (userId, courseId) => {
     return { success: false, progress: null };
   } catch (error) {
     console.error('❌ Error getting course progress:', error);
+    console.error('❌ Progress parameters - userId:', userId, 'courseId:', courseId);
     return { success: false, error: error.message, progress: null };
   }
 };
@@ -229,6 +337,17 @@ export const getCourseProgress = async (userId, courseId) => {
  */
 export const toggleLectureCompletion = async (userId, courseId, sectionId, lectureId) => {
   try {
+    // Add validation for required parameters
+    if (!userId || !courseId || !sectionId || !lectureId) {
+      console.error('❌ toggleLectureCompletion: Missing required parameters', {
+        hasUserId: !!userId,
+        hasCourseId: !!courseId,
+        hasSectionId: !!sectionId,
+        hasLectureId: !!lectureId
+      });
+      return { success: false, error: 'Missing required parameters' };
+    }
+
     console.log('🔄 Toggling lecture completion:', { userId, courseId, sectionId, lectureId });
 
     const progressId = `${userId}_${courseId}`;
@@ -356,6 +475,15 @@ export const toggleLectureCompletion = async (userId, courseId, sectionId, lectu
  */
 export const enrollInCourse = async (userId, courseId, expiryDate = null) => {
   try {
+    // Add validation for required parameters
+    if (!userId || !courseId) {
+      console.error('❌ enrollInCourse: Missing required parameters', {
+        hasUserId: !!userId,
+        hasCourseId: !!courseId
+      });
+      return { success: false, error: 'User ID and Course ID are required' };
+    }
+
     console.log('📝 Enrolling user in course:', { userId, courseId, expiryDate });
 
     // Get course to calculate total lectures
@@ -378,6 +506,68 @@ export const enrollInCourse = async (userId, courseId, expiryDate = null) => {
     }
 
     const userData = userSnap.data();
+    console.log('📊 User data in enrollInCourse:', userData);
+    console.log('📊 User data type in enrollInCourse:', typeof userData);
+
+    if (!userData) {
+      console.error('❌ User data is null or undefined in enrollInCourse - Firestore document corruption detected');
+      console.error('🔍 Attempting to repair the corrupted user document for enrollment...');
+
+      // Try to repair the user document first
+      try {
+        const repairedUserData = await repairUserDocument(userId);
+
+        if (repairedUserData) {
+          console.log('✅ User document repaired, proceeding with enrollment');
+
+          // Now proceed with enrollment using the repaired data
+          const updatedPurchasedCourses = [...repairedUserData.purchasedCourses, courseId];
+
+          await userRef.update({
+            purchasedCourses: updatedPurchasedCourses,
+            updatedAt: new Date().toISOString()
+          });
+
+          console.log('✅ Course added to user purchases after repair:', updatedPurchasedCourses);
+
+          // Create progress document with CORRECT totalLectures
+          const progressId = `${userId}_${courseId}`;
+          const progressRef = db.collection('userCourseProgress').doc(progressId);
+
+          await progressRef.set({
+            progressId,
+            userId,
+            courseId,
+            progress: 0,
+            status: 'IN_PROGRESS',
+            completedLectures: [],
+            totalLectures: totalLectures,
+            enrolledAt: new Date().toISOString(),
+            lastAccessedAt: new Date().toISOString(),
+            expiryDate: expiryDate,
+          });
+
+          console.log('✅ Course progress initialized with totalLectures:', totalLectures);
+
+          return {
+            success: true,
+            updatedUser: {
+              ...repairedUserData,
+              purchasedCourses: updatedPurchasedCourses,
+              updatedAt: new Date().toISOString()
+            }
+          };
+
+        } else {
+          console.error('❌ Failed to repair user document for enrollment');
+          return { success: false, error: 'User data corrupted and repair failed during enrollment' };
+        }
+      } catch (repairError) {
+        console.error('❌ User document repair failed during enrollment:', repairError);
+        return { success: false, error: 'User data corruption could not be fixed during enrollment' };
+      }
+    }
+
     const currentPurchasedCourses = userData.purchasedCourses || [];
 
     // Check if already purchased
@@ -435,67 +625,188 @@ export const enrollInCourse = async (userId, courseId, expiryDate = null) => {
  */
 export const getUserCourses = async (userId) => {
   try {
-    console.log('👤 Fetching courses for user:', userId);
+    console.log('👤 getUserCourses called with userId:', userId);
+
+    if (!userId) {
+      console.error('❌ userId is null or undefined');
+      return { success: false, error: 'User ID is required', courses: [] };
+    }
+
+    console.log('📖 Fetching user document from Firestore...');
 
     // First, get user's purchased courses from their profile
     const userDocRef = db.collection('users').doc(userId);
+    console.log('🔗 User document reference:', userDocRef.path);
+
     const userDocSnap = await userDocRef.get();
+    console.log('📄 User document exists:', userDocSnap.exists);
+    console.log('📄 User document metadata:', {
+      id: userDocSnap.id,
+      metadata: userDocSnap.metadata,
+      ref: userDocSnap.ref.path
+    });
 
     if (!userDocSnap.exists) {
-      console.log('❌ User not found');
-      return { success: false, error: 'User not found', courses: [] };
+      console.log('❌ User document not found in Firestore');
+      return { success: false, error: 'User not found in database', courses: [] };
     }
 
     const userData = userDocSnap.data();
+    console.log('📊 IMMEDIATE DEBUG - Raw user data from Firestore:', userData);
+    console.log('📊 IMMEDIATE DEBUG - User data type:', typeof userData);
+    console.log('📊 IMMEDIATE DEBUG - User data is null:', userData === null);
+    console.log('📊 IMMEDIATE DEBUG - User data is undefined:', userData === undefined);
+    console.log('📊 IMMEDIATE DEBUG - User data keys:', userData ? Object.keys(userData) : 'N/A');
+    console.log('📊 IMMEDIATE DEBUG - Document snapshot object:', {
+      exists: userDocSnap.exists,
+      id: userDocSnap.id,
+      metadata: userDocSnap.metadata,
+      ref: userDocSnap.ref.path
+    });
+
+    // Test if we can read data differently
+    console.log('📊 ALTERNATIVE ACCESS TEST - Trying alternative data access...');
+    try {
+      const alternativeData = userDocSnap.get('uid');
+      console.log('📊 Alternative access (uid):', alternativeData);
+      const alternativeData2 = userDocSnap.get('email');
+      console.log('📊 Alternative access (email):', alternativeData2);
+    } catch (altError) {
+      console.error('❌ Alternative access failed:', altError);
+    }
+
+    if (!userData) {
+      console.error('🚨 CRITICAL DEBUG - User data is null or undefined - this indicates a Firestore document corruption or sync issue');
+      console.error('🚨 AUTO-FIX - Attempting automatic user document repair...');
+
+      try {
+        // Automatic quick fix attempt
+        console.log('🚀 AUTO-FIX - Running quick fix...');
+        const quickFixResult = await quickFixUserDocument(userId);
+
+        if (quickFixResult.success) {
+          console.log('🚀 AUTO-FIX SUCCESS - User document fixed! Returning empty courses for now.');
+          return { success: true, courses: [] };
+        }
+
+        console.error('🚀 AUTO-FIX FAILED - Quick fix did not work, running comprehensive diagnostics...');
+
+        // First, check if this is a security rules issue
+        console.error('🔍 Running Firestore access diagnostics...');
+        const accessCheck = await checkFirestoreAccess(userId);
+        console.log('📊 Access check results:', accessCheck);
+
+        if (!accessCheck.directAccess && !accessCheck.queryAccess) {
+          console.error('❌ This appears to be a Firebase Security Rules issue - no access to user documents');
+          return { success: false, error: 'Firebase Security Rules blocking access to user data. Please check your Firestore security rules.', courses: [] };
+        }
+
+        console.error('🔍 Access check passed, attempting the manual repair process...');
+
+        // Try to repair the user document
+        const repairedUserData = await repairUserDocument(userId);
+        console.log('🔧 Manual repair function returned:', repairedUserData);
+
+        if (repairedUserData) {
+          console.log('✅ Manual repair successful, proceeding with empty courses');
+          // Return empty courses since the user has no purchased courses after repair
+          return { success: true, courses: [] };
+        } else {
+          console.error('❌ All repair attempts failed - this is a critical Firestore issue');
+          console.error('❌ POSSIBLE CAUSES:');
+          console.error('   1. Firebase Security Rules are blocking write access');
+          console.error('   2. Firebase project configuration issues');
+          console.error('   3. Network connectivity problems');
+          console.error('   4. Firebase account/permission issues');
+          return { success: false, error: 'User data corruption could not be repaired. Please check Firebase console for security rules and project configuration.', courses: [] };
+        }
+      } catch (repairError) {
+        console.error('❌ Exception during auto-repair process:', repairError);
+        console.error('❌ Auto-repair error stack:', repairError.stack);
+        return { success: false, error: 'Critical user data corruption error: ' + repairError.message, courses: [] };
+      }
+    }
+
+    console.log('📊 User data retrieved:', {
+      uid: userData.uid,
+      email: userData.email,
+      name: userData.name,
+      purchasedCourses: userData.purchasedCourses
+    });
+
     const purchasedCourseIds = userData.purchasedCourses || [];
+    console.log('🛒 Purchased course IDs found:', purchasedCourseIds);
 
     if (purchasedCourseIds.length === 0) {
       console.log('ℹ️ User has no purchased courses');
       return { success: true, courses: [] };
     }
 
-    console.log('🛒 User purchased course IDs:', purchasedCourseIds);
+    console.log('🔄 Starting to fetch course details for', purchasedCourseIds.length, 'courses...');
 
     // Fetch all purchased courses with their progress
     const courses = [];
     for (const courseId of purchasedCourseIds) {
-      const result = await getCourseById(courseId);
-      if (result.success) {
-        // Get progress for this course
-        const progressResult = await getCourseProgress(userId, courseId);
-
-        if (progressResult.success && progressResult.progress) {
-          // Merge progress with course data
-          const courseWithProgress = {
-            ...result.course,
-            progress: progressResult.progress.progress || 0,
-            status: progressResult.progress.status || 'IN_PROGRESS',
-            expiryDate: progressResult.progress.expiryDate || null,
-            isPurchased: true,
-          };
-
-          console.log(`✅ Course ${courseId}: ${courseWithProgress.progress}% (${courseWithProgress.status})`);
-          courses.push(courseWithProgress);
-        } else {
-          // No progress yet, add with defaults
-          console.log(`⚠️ No progress for course ${courseId}, using defaults`);
-          courses.push({
-            ...result.course,
-            progress: 0,
-            status: 'NOT_STARTED',
-            isPurchased: true,
-          });
+      console.log(`📚 Fetching course ${courseId}...`);
+      try {
+        // Double check that userId is still available
+        if (!userId) {
+          console.error('❌ userId became undefined during iteration');
+          break;
         }
+
+        const result = await getCourseById(courseId);
+        if (result.success) {
+          // Get progress for this course - but only if userId is still valid
+          let progressResult;
+          if (userId) {
+            progressResult = await getCourseProgress(userId, courseId);
+          } else {
+            console.error('❌ Cannot get progress - userId is undefined');
+            progressResult = { success: false, progress: null };
+          }
+
+          if (progressResult.success && progressResult.progress) {
+            // Merge progress with course data
+            const courseWithProgress = {
+              ...result.course,
+              progress: progressResult.progress.progress || 0,
+              status: progressResult.progress.status || 'IN_PROGRESS',
+              expiryDate: progressResult.progress.expiryDate || null,
+              isPurchased: true,
+            };
+
+            console.log(`✅ Course ${courseId}: ${courseWithProgress.progress}% (${courseWithProgress.status})`);
+            courses.push(courseWithProgress);
+          } else {
+            // No progress yet, add with defaults
+            console.log(`⚠️ No progress for course ${courseId}, using defaults`);
+            courses.push({
+              ...result.course,
+              progress: 0,
+              status: 'NOT_STARTED',
+              isPurchased: true,
+            });
+          }
+        } else {
+          console.error(`❌ Failed to fetch course ${courseId}:`, result.error);
+        }
+      } catch (courseError) {
+        console.error(`❌ Exception fetching course ${courseId}:`, courseError);
       }
     }
 
-    console.log(`✅ Fetched ${courses.length} purchased courses for user`);
+    console.log(`✅ Successfully fetched ${courses.length} purchased courses for user`);
     return { success: true, courses };
   } catch (error) {
-    console.error("❌ Error fetching user courses:", error);
+    console.error("❌ Top-level error in getUserCourses:", error);
+    console.error("❌ Error name:", error.name);
+    console.error("❌ Error message:", error.message);
+    console.error("❌ Error stack:", error.stack);
+
     return {
       success: false,
-      error: "Failed to fetch user courses",
+      error: `Failed to fetch user courses: ${error.message}`,
       courses: []
     };
   }
@@ -508,23 +819,10 @@ export const subscribeToCoursesUpdates = (callback) => {
 
     const unsubscribe = db.collection('courses').onSnapshot((snapshot) => {
       const courses = [];
-
-      // React Native Firebase uses .docs property to get the array of documents
-      if (snapshot.docs && Array.isArray(snapshot.docs)) {
-        snapshot.docs.forEach((docSnapshot) => {
-          const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-          courses.push(courseData);
-        });
-      } else {
-        // Fallback method if .docs doesn't work
-        console.log('⚠️ Using alternative method for real-time documents');
-        if (snapshot && typeof snapshot.forEach === 'function') {
-          snapshot.forEach((docSnapshot) => {
-            const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-            courses.push(courseData);
-          });
-        }
-      }
+      snapshot.forEach((doc) => {
+        const courseData = transformCourseData(doc.id, doc.data());
+        courses.push(courseData);
+      });
 
       console.log(`🔄 Real-time update: ${courses.length} courses`);
       callback({ success: true, courses });
@@ -547,23 +845,10 @@ export const getCoursesByCategory = async (category) => {
     const coursesSnapshot = await db.collection('courses').where('membershipType', '==', category).get();
 
     const courses = [];
-
-    // React Native Firebase uses .docs property to get the array of documents
-    if (coursesSnapshot.docs && Array.isArray(coursesSnapshot.docs)) {
-      coursesSnapshot.docs.forEach((docSnapshot) => {
-        const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-        courses.push(courseData);
-      });
-    } else {
-      // Fallback method if .docs doesn't work
-      console.log('⚠️ Using alternative method to get category documents');
-      if (coursesSnapshot && typeof coursesSnapshot.forEach === 'function') {
-        coursesSnapshot.forEach((docSnapshot) => {
-          const courseData = transformCourseData(docSnapshot.id, docSnapshot.data());
-          courses.push(courseData);
-        });
-      }
-    }
+    coursesSnapshot.forEach((doc) => {
+      const courseData = transformCourseData(doc.id, doc.data());
+      courses.push(courseData);
+    });
 
     console.log(`✅ Fetched ${courses.length} courses in category: ${category}`);
     return { success: true, courses };
@@ -588,16 +873,6 @@ export const searchCourses = async (searchTerm) => {
       return result;
     }
 
-    // Add safety check for courses array
-    if (!result.courses || !Array.isArray(result.courses)) {
-      console.error('❌ Invalid courses data received:', result.courses);
-      return {
-        success: false,
-        error: "Invalid courses data structure",
-        courses: []
-      };
-    }
-
     const searchLower = searchTerm.toLowerCase();
     const filteredCourses = result.courses.filter(course =>
       course.title?.toLowerCase().includes(searchLower) ||
@@ -614,5 +889,83 @@ export const searchCourses = async (searchTerm) => {
       error: "Failed to search courses",
       courses: []
     };
+  }
+};
+
+/**
+ * Test function to manually check and fix user document issues
+ */
+export const testUserDocument = async (userId) => {
+  try {
+    console.log('🧪 TESTING USER DOCUMENT - Manual check for userId:', userId);
+
+    // Step 1: Check if user is authenticated
+    const currentUser = auth().currentUser;
+    console.log('🧪 Current authenticated user:', currentUser ? currentUser.uid : 'None');
+
+    if (!currentUser) {
+      return { success: false, error: 'No authenticated user' };
+    }
+
+    // Step 2: Try direct document access
+    const userDocRef = db.collection('users').doc(userId);
+    console.log('🧪 Document reference:', userDocRef.path);
+
+    const docSnap = await userDocRef.get();
+    console.log('🧪 Document exists:', docSnap.exists);
+    console.log('🧪 Document data:', docSnap.data());
+
+    // Step 3: If no data, try to create it
+    if (!docSnap.exists || !docSnap.data()) {
+      console.log('🧪 Creating user document manually...');
+
+      const newUserData = {
+        uid: currentUser.uid,
+        email: currentUser.email || '',
+        name: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+        mobileNumber: currentUser.phoneNumber || '',
+        address: '',
+        purchasedCourses: [],
+        createdAt: firestore.FieldValue.serverTimestamp(),
+        updatedAt: firestore.FieldValue.serverTimestamp()
+      };
+
+      await userDocRef.set(newUserData);
+      console.log('🧪 User document created successfully');
+
+      // Verify the creation
+      const verifySnap = await userDocRef.get();
+      const verifyData = verifySnap.data();
+      console.log('🧪 Verification - Document data after creation:', verifyData);
+
+      return { success: true, userData: verifyData };
+    }
+
+    return { success: true, userData: docSnap.data() };
+
+  } catch (testError) {
+    console.error('🧪 Test function error:', testError);
+    return { success: false, error: testError.message };
+  }
+};
+
+/**
+ * Quick fix function - call this to immediately resolve user document issues
+ */
+export const quickFixUserDocument = async (userId) => {
+  console.log('🚀 QUICK FIX - Attempting to fix user document for:', userId);
+
+  try {
+    const testResult = await testUserDocument(userId);
+    if (testResult.success) {
+      console.log('🚀 QUICK FIX - User document is now working!');
+      return testResult;
+    } else {
+      console.error('🚀 QUICK FIX - Failed:', testResult.error);
+      return testResult;
+    }
+  } catch (quickFixError) {
+    console.error('🚀 QUICK FIX - Exception:', quickFixError);
+    return { success: false, error: quickFixError.message };
   }
 };

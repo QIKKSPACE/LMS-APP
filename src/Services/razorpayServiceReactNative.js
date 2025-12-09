@@ -3,6 +3,7 @@ import RazorpayCheckout from 'react-native-razorpay';
 import { getRazorpayKeyId, COMPANY_INFO, PAYMENT_CONFIG } from '../Config/razorpayConfig';
 import { enrollInCourse } from './courseService';
 import { db } from '../firebase';
+import auth from '@react-native-firebase/auth';
 
 /**
  * Initiate Razorpay payment in React Native
@@ -122,15 +123,34 @@ const handlePaymentSuccess = async (paymentData) => {
 
     const timestamp = new Date().toISOString();
 
+    // Check if user is still authenticated
+    const currentUser = auth().currentUser;
+    if (!currentUser) {
+      console.error('❌ User not authenticated during payment processing');
+      throw new Error('User not authenticated. Please log in again.');
+    }
+
+    console.log('✅ User authenticated:', currentUser.uid);
+
+    // Validate that the payment userId matches the authenticated user
+    if (paymentData.userId !== currentUser.uid) {
+      console.error('❌ Payment user ID does not match authenticated user');
+      throw new Error('User authentication mismatch');
+    }
+
     // Validate required fields
     if (!paymentData.userId || !paymentData.courseId) {
       throw new Error('Missing required payment data');
     }
 
     // 1. Enroll user in course
+    console.log('📝 Enrolling user:', paymentData.userId, 'in course:', paymentData.courseId);
+
     const expiryDate = new Date();
     expiryDate.setFullYear(expiryDate.getFullYear() + 1); // 1 year access
     const expiryDateStr = expiryDate.toISOString().split('T')[0];
+
+    console.log('📅 Course expiry date:', expiryDateStr);
 
     const enrollmentResult = await enrollInCourse(
       paymentData.userId,
@@ -139,6 +159,7 @@ const handlePaymentSuccess = async (paymentData) => {
     );
 
     if (!enrollmentResult.success) {
+      console.error('❌ Enrollment failed:', enrollmentResult.error);
       throw new Error('Failed to enroll user in course: ' + enrollmentResult.error);
     }
 
@@ -196,10 +217,22 @@ const handlePaymentSuccess = async (paymentData) => {
  */
 export const verifyCoursePurchase = async (userId, courseId) => {
   try {
+    // Validate input parameters
+    if (!userId || !courseId) {
+      console.error('❌ verifyCoursePurchase: Missing userId or courseId');
+      return false;
+    }
+
     // This should use the existing courseService function
     const { getUserCourses } = await import('./courseService');
-    const userCourses = await getUserCourses(userId);
-    return userCourses.some(course => course.id === courseId);
+    const result = await getUserCourses(userId);
+
+    if (!result.success) {
+      console.error('❌ verifyCoursePurchase: Failed to get user courses:', result.error);
+      return false;
+    }
+
+    return result.courses.some(course => course.id === courseId);
   } catch (error) {
     console.error('Error verifying purchase:', error);
     return false;

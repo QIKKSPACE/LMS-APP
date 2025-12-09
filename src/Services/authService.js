@@ -44,6 +44,7 @@ export const signupUser = async (name, email, password) => {
       email: email,
       mobileNumber: '',
       address: '',
+      purchasedCourses: [],
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp()
     };
@@ -124,6 +125,7 @@ export const loginUser = async (email, password) => {
         email: user.email,
         mobileNumber: '',
         address: '',
+        purchasedCourses: [],
         createdAt: firestore.FieldValue.serverTimestamp(),
         updatedAt: firestore.FieldValue.serverTimestamp()
       };

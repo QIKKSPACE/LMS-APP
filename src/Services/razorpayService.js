@@ -2,7 +2,7 @@
 import { doc, updateDoc, arrayUnion, setDoc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import toast from 'react-hot-toast';
-import { getRazorpayKeyId, COMPANY_INFO, PAYMENT_CONFIG } from '../config/razorpayConfig';
+import { getRazorpayKeyId, COMPANY_INFO, PAYMENT_CONFIG } from '../Config/razorpayConfig';
 
 /**
  * Load Razorpay script dynamically
@@ -161,17 +161,10 @@ export const initiatePayment = async (courseData, userInfo, onPaymentSuccess = n
               console.log('✅ Calling onPaymentSuccess callback with updated user');
               onPaymentSuccess(result.updatedUser);
             }
-
-            // Navigate to My Courses after 2 seconds instead of reloading
+            
+            // Reload page after 2 seconds
             setTimeout(() => {
-              // Try to navigate to My Courses tab
-              const myCoursesLink = document.querySelector('a[href="#/mycourse"]');
-              if (myCoursesLink) {
-                myCoursesLink.click();
-              } else {
-                // Fallback: reload the page if navigation link not found
-                window.location.reload();
-              }
+              window.location.reload();
             }, 2000);
           } else {
             toast.error('Payment successful but failed to add course. Please contact support.');
@@ -247,6 +240,15 @@ const handlePaymentSuccess = async (paymentData) => {
     }
 
     const userData = userDoc.data();
+    console.log('📊 User data in razorpayService:', userData);
+    console.log('📊 User data type in razorpayService:', typeof userData);
+
+    if (!userData) {
+      console.error('❌ User data is null or undefined in razorpayService - Firestore document corruption detected');
+      console.error('🔍 This indicates a serious issue with the user document in Firestore');
+      throw new Error('User data is null or undefined - please contact support');
+    }
+
     const currentPurchasedCourses = userData.purchasedCourses || [];
 
     // Check if already purchased
@@ -355,6 +357,14 @@ export const verifyCoursePurchase = async (userId, courseId) => {
 
     if (userDocSnap.exists()) {
       const userData = userDocSnap.data();
+      console.log('📊 User data in verifyCoursePurchase:', userData);
+      console.log('📊 User data type in verifyCoursePurchase:', typeof userData);
+
+      if (!userData) {
+        console.error('❌ User data is null or undefined in verifyCoursePurchase - Firestore document corruption detected');
+        return false;
+      }
+
       const purchasedCourses = userData.purchasedCourses || [];
       return purchasedCourses.includes(courseId);
     }
