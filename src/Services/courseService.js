@@ -114,15 +114,24 @@ const transformCourseData = (courseId, firestoreData) => {
     sections = firestoreData.courseContent.map((chapter, index) => {
       // Extract lectures from chapterContent
       const lecturesList = chapter.chapterContent && Array.isArray(chapter.chapterContent)
-        ? chapter.chapterContent.map((lecture, lectureIndex) => ({
-            id: lecture.lectureId || `lect_${Date.now()}_${lectureIndex}`,
-            title: lecture.lectureTitle || `Lecture ${lectureIndex + 1}`,
-            duration: lecture.lectureDuration || '30',
-            url: lecture.lectureUrl || '',
-            order: lecture.lectureOrder || lectureIndex + 1,
-            isPreviewFree: lecture.isPreviewFree || false,
-            isCompleted: false,
-          }))
+        ? chapter.chapterContent.map((lecture, lectureIndex) => {
+            console.log(`🎥 Lecture ${lectureIndex} raw data:`, lecture);
+            console.log(`🎥 Lecture ${lectureIndex} available keys:`, Object.keys(lecture));
+            console.log(`🎥 Lecture ${lectureIndex} lectureUrl:`, lecture.lectureUrl);
+            console.log(`🎥 Lecture ${lectureIndex} videoUrl:`, lecture.videoUrl);
+            console.log(`🎥 Lecture ${lectureIndex} url:`, lecture.url);
+
+            return {
+              id: lecture.lectureId || `lect_${Date.now()}_${lectureIndex}`,
+              title: lecture.lectureTitle || `Lecture ${lectureIndex + 1}`,
+              duration: lecture.lectureDuration || '30',
+              videoUrl: lecture.lectureUrl || lecture.videoUrl || lecture.url || '',
+              url: lecture.lectureUrl || lecture.videoUrl || lecture.url || '', // Keep both for compatibility
+              order: lecture.lectureOrder || lectureIndex + 1,
+              isPreviewFree: lecture.isPreviewFree || false,
+              isCompleted: false,
+            };
+          })
         : [];
       
       // ✅ CRITICAL: Add to total lecture count
