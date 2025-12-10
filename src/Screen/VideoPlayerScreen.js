@@ -18,6 +18,7 @@ import { useAuth } from '../Context/AuthContext';
 import { toggleLectureCompletion } from '../Services/courseService';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
+import ScreenGuard from 'react-native-screenguard';
 
 const { width, height } = Dimensions.get('window');
 
@@ -37,6 +38,17 @@ const VideoPlayerScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     fetchCourseData();
+
+    // Activate ScreenGuard when the video player screen is mounted
+    ScreenGuard.register({
+      backgroundColor: '#000000', // Black background
+      timeAfterResume: 1000 // 1 second delay
+    });
+
+    // Cleanup function to deactivate ScreenGuard when unmounting
+    return () => {
+      ScreenGuard.unregister();
+    };
   }, [courseId]);
 
   const fetchCourseData = async () => {
@@ -186,35 +198,36 @@ const VideoPlayerScreen = ({ route, navigation }) => {
                 </Text>
               </View>
             )}
-
-            {videoLoading && (
-              <View style={styles.videoLoadingOverlay}>
-                <ActivityIndicator size="large" color="#DC2626" />
-              </View>
-            )}
-
-            {/* Current Lecture Info */}
-            <LinearGradient
-              colors={['rgba(0,0,0,0.9)', 'rgba(0,0,0,0.7)']}
-              style={styles.lectureInfoContainer}
-            >
-              <View style={styles.lectureInfo}>
-                <Text style={styles.lectureTitle}>{currentLecture.title}</Text>
-                <View style={styles.lectureMeta}>
-                  <MaterialCommunityIcons name="clock-outline" size={14} color="#9CA3AF" />
-                  <Text style={styles.lectureDuration}>
-                    {currentLecture.duration}
-                  </Text>
-                  {currentLecture.isCompleted && (
-                    <View style={styles.completedBadge}>
-                      <MaterialCommunityIcons name="check-circle" size={14} color="#10B981" />
-                      <Text style={styles.completedText}>Completed</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </LinearGradient>
           </>
+        )}
+
+        {videoLoading && (
+          <View style={styles.videoLoadingOverlay}>
+            <ActivityIndicator size="large" color="#DC2626" />
+          </View>
+        )}
+
+        {/* Current Lecture Info */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.9)', 'rgba(0,0,0,0.7)']}
+          style={styles.lectureInfoContainer}
+        >
+          <View style={styles.lectureInfo}>
+            <Text style={styles.lectureTitle}>{currentLecture.title}</Text>
+            <View style={styles.lectureMeta}>
+              <MaterialCommunityIcons name="clock-outline" size={14} color="#9CA3AF" />
+              <Text style={styles.lectureDuration}>
+                {currentLecture.duration}
+              </Text>
+              {currentLecture.isCompleted && (
+                <View style={styles.completedBadge}>
+                  <MaterialCommunityIcons name="check-circle" size={14} color="#10B981" />
+                  <Text style={styles.completedText}>Completed</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </LinearGradient>
         )}
       </View>
 
