@@ -211,7 +211,7 @@ const HomeScreen = ({ navigation, onCourseClick }) => {
               <View style={styles.headerTop}>
                 <Text style={styles.headerTitle}>Home</Text>
                 <Image
-                  source={require('../assets/logo.png')}
+                  source={require('../assets/Logo1.jpeg')}
                   style={styles.logo}
                   resizeMode="contain"
                 />
