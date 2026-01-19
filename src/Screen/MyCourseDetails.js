@@ -17,7 +17,7 @@ import { initializeCourseProgress, toggleLectureCompletion } from '../unities/pr
 import { checkCourseExpiry } from '../unities/courseExpiry';
 import { useAuth } from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
-
+ 
 const { width, height } = Dimensions.get('window');
 
 const MyCourseDetails = ({ route, navigation }) => {
