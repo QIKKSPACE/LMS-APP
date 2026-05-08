@@ -1,9 +1,5 @@
-    /**
- * BuyCourseDetailScreen Component - React Native CLI
- * 
- * Dynamic course detail screen with banner, details, price, and Buy Now button
- */
-import React, {useState, useEffect} from 'react';
+// src/Screen/BuyCourseDetail.js
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,725 +7,263 @@ import {
   Image,
   TouchableOpacity,
   StyleSheet,
-  StatusBar,
   ActivityIndicator,
+  StatusBar,
   Dimensions,
-  Alert,
+  Platform,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import LinearGradient from 'react-native-linear-gradient';
-import {getCourseById, enrollInCourse} from '../Services/courseService';
-import {useAuth} from '../Context/AuthContext';
-import Toast from 'react-native-toast-message';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { initiateRazorpayPayment } from '../Services/razorpayServiceReactNative';
+import LinearGradient from 'react-native-linear-gradient';
+import { useAuth } from '../Context/AuthContext';
+import { getCourseById } from '../Services/courseService';
+import { initIAP, requestPurchase, recordPurchaseInFirestore, setupIAPListeners, removeIAPListeners, endIAP } from '../Services/iapService';
+import Toast from 'react-native-toast-message';
 
-const {width, height} = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-const BuyCourseDetailScreen = ({route, navigation}) => {
-  const {courseId, onPurchase} = route.params || {};
-  const {user} = useAuth();
-  const [course, setCourse] = useState(null);
-  const [loading, setLoading] = useState(true);
+const BuyCourseDetailScreen = ({ route, navigation }) => {
+  const { course: initialCourse, courseId } = route.params || {};
+  const { user } = useAuth();
+  
+  const [course, setCourse] = useState(initialCourse || null);
+  const [loading, setLoading] = useState(!initialCourse);
   const [purchasing, setPurchasing] = useState(false);
 
-  // Fetch course from Firestore
+  useEffect(() => {
+    // Initialize IAP when component mounts
+    const setupIAP = async () => {
+      await initIAP();
+      setupIAPListeners(
+        async (purchase) => {
+          try {
+            console.log('📦 Purchase processed by listener');
+            const result = await recordPurchaseInFirestore(purchase, course || initialCourse);
+            if (result.success) {
+              setPurchasing(false);
+              Toast.show({ type: 'success', text1: 'Purchase Successful!', text2: 'Enjoy your new course' });
+              setTimeout(() => navigation.navigate('MainApp', { screen: 'Mycourse' }), 1000);
+            }
+          } catch (err) {
+            console.error('❌ Firestore update error:', err);
+            setPurchasing(false);
+            Toast.show({ type: 'error', text1: 'Update failed', text2: 'Failed to register your purchase. Please contact support.' });
+          }
+        },
+        (error) => {
+          console.log('📦 Purchase Error (listener):', error);
+          setPurchasing(false);
+          if (error?.code !== 'E_USER_CANCELLED') {
+              Toast.show({ type: 'error', text1: 'Purchase failed', text2: error?.message || 'Transaction error' });
+          }
+        }
+      );
+    };
+    setupIAP();
+
+    // Clean up IAP connection on unmount
+    return () => {
+      removeIAPListeners();
+      endIAP();
+    };
+  }, [course, initialCourse]);
+
   useEffect(() => {
     const fetchCourse = async () => {
-      try {
-        setLoading(true);
-        console.log('🔍 Fetching course with ID:', courseId);
-
-        if (!courseId) {
-          console.error('❌ No courseId provided');
-          Toast.show({
-            type: 'error',
-            text1: 'Course ID not provided',
-          });
-          return;
+      if (!course && courseId) {
+        try {
+          setLoading(true);
+          const result = await getCourseById(courseId);
+          if (result.success) {
+            setCourse(result.course);
+          } else {
+            Toast.show({ type: 'error', text1: 'Error', text2: 'Course not found' });
+          }
+        } catch (error) {
+          console.error('Fetch error:', error);
+        } finally {
+          setLoading(false);
         }
-
-        const courseData = await getCourseById(courseId);
-        console.log('📚 Course data received:', courseData);
-
-        if (courseData) {
-          setCourse(courseData);
-          console.log('✅ Course loaded successfully');
-        } else {
-          console.error('❌ Course not found in Firestore');
-          Toast.show({
-            type: 'error',
-            text1: 'Course not found',
-            text2: 'The course you are looking for does not exist'
-          });
-        }
-      } catch (error) {
-        console.error('❌ Error fetching course:', error);
-        Toast.show({
-          type: 'error',
-          text1: 'Failed to load course',
-          text2: error.message || 'Please check your connection and try again'
-        });
-      } finally {
-        setLoading(false);
       }
     };
-
-    if (courseId) {
-      fetchCourse();
-    }
+    fetchCourse();
   }, [courseId]);
 
   const handleBuyNow = async () => {
     if (!user) {
-      Toast.show({
-        type: 'error',
-        text1: 'Please login to purchase this course',
-      });
+      navigation.navigate('Auth');
       return;
     }
-
-    if (purchasing) return;
-
-    Alert.alert(
-      'Confirm Purchase',
-      `Are you sure you want to purchase "${course.title}" for ₹${course.price}?`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Proceed to Payment',
-          onPress: async () => {
-            try {
-              setPurchasing(true);
-
-              console.log('🚀 Initiating payment for course:', course.title);
-
-              // Prepare course data for Razorpay
-              const courseData = {
-                id: courseId,
-                title: course.title,
-                price: course.price,
-                description: course.description,
-                thumbnail: course.thumbnail,
-              };
-
-              // Prepare user data for Razorpay
-              const userData = {
-                uid: user.uid,
-                email: user.email,
-                displayName: user.displayName || user.name,
-                phoneNumber: user.phoneNumber,
-              };
-
-              // Initiate Razorpay payment
-              const paymentResult = await initiateRazorpayPayment(
-                courseData,
-                userData,
-                (result) => {
-                  // Callback after successful payment
-                  console.log('✅ Payment callback received:', result);
-                }
-              );
-
-              console.log('💰 Payment successful:', paymentResult);
-
-              Toast.show({
-                type: 'success',
-                text1: '🎉 Payment successful!',
-                text2: 'Course added to your library',
-              });
-
-              // Wait a bit for user to see the success message
-              setTimeout(() => {
-                if (onPurchase) {
-                  onPurchase(courseId);
-                }
-                // Navigate to MyCourse tab after purchase
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'MainApp' }],
-                });
-
-                // Navigate to MyCourse tab after a short delay to ensure MainApp loads
-                setTimeout(() => {
-                  Alert.alert("Purchase Successful", "You have successfully purchased the course.");
-                  navigation.navigate('MainApp', {
-                    screen: 'Mycourse',
-                    params: { refresh: true } // Add refresh param to trigger course refresh
-                  });
-                }, 100);
-              }, 2000);
-
-            } catch (error) {
-              console.error('💳 Payment error:', error);
-
-              let errorMessage = 'Payment failed';
-              if (error.message.includes('cancelled')) {
-                errorMessage = 'Payment was cancelled';
-              } else if (error.message.includes('Payment gateway not configured')) {
-                errorMessage = 'Payment service not available. Please contact support.';
-              } else {
-                errorMessage = error.message || 'An error occurred during payment';
-              }
-
-              Toast.show({
-                type: 'error',
-                text1: 'Payment Failed',
-                text2: errorMessage,
-              });
-            } finally {
-              setPurchasing(false);
-            }
-          },
-        },
-      ],
-    );
+    if (!course?.id) return;
+    
+    try {
+      setPurchasing(true);
+      // Use course.id as SKU for Google Play Billing (IAP)
+      const sku = course.id;
+      console.log('🛒 Initiating requestPurchase for SKU:', sku);
+      await requestPurchase(sku);
+      // The listener in useEffect will handle the results
+    } catch (error) {
+      console.error('Purchase initiation error:', error);
+      setPurchasing(false);
+      if (error?.code !== 'E_USER_CANCELLED') {
+          Toast.show({ type: 'error', text1: 'Error', text2: 'Could not start payment process. Please try again.' });
+      }
+    }
   };
 
-  // Loading state
   if (loading) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#DC2626" />
-        <Text style={styles.loadingText}>Loading course...</Text>
+        <Text style={styles.loadingText}>Loading course details...</Text>
       </View>
     );
   }
 
-  // Course not found
   if (!course) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
-        <View style={styles.errorContainer}>
-          <View style={styles.errorIconContainer}>
-            <MaterialCommunityIcons
-              name="close-circle"
-              size={48}
-              color="#DC2626"
-            />
-          </View>
-          <Text style={styles.errorTitle}>Course Not Found</Text>
-          <Text style={styles.errorDescription}>
-            The course you're looking for doesn't exist.
-          </Text>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={styles.centerContainer}>
+        <Icon name="error-outline" size={64} color="#DC2626" />
+        <Text style={styles.errorText}>No course data found</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Text style={styles.backBtnText}>Go Back</Text></TouchableOpacity>
+      </View>
     );
   }
+
+  const isOwned = course.isPurchased || false;
+  const displayTitle = course.courseTitle || course.title || 'Course Details';
+  const displayPrice = course.discountPrice || course.coursePrice || course.price || '0';
+  const originalPrice = course.coursePrice || course.price || '0';
+  const displayThumbnail = course.courseThumbnail || course.thumbnail || course.imageUrl;
+  const displayDescription = course.courseDescription || course.description || 'No description available for this course.';
+  
+  const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - displayPrice) / originalPrice) * 100) : 0;
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
-
-      {/* Header */}
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Branded Navigation Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backIconButton}>
-          <Text style={styles.backIcon}>←</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon}>
+          <Icon name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Course Details</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={styles.headerTitle} numberOfLines={1}>{displayTitle}</Text>
+        <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.navigate('MainApp', { screen: 'Mycourse' })}>
+          <MaterialCommunityIcons name="library-video" size={24} color="#DC2626" />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}>
-        {/* Course Banner */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Banner with clean content-first look */}
         <View style={styles.bannerContainer}>
-          <Image
-            source={{uri: course.thumbnail}}
-            style={styles.bannerImage}
-            resizeMode="cover"
+          <Image 
+            source={{ uri: displayThumbnail || 'https://via.placeholder.com/600x400' }} 
+            style={styles.bannerImage} 
+            resizeMode="cover" 
           />
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.8)']}
-            style={styles.bannerGradient}
-          />
-          <View style={styles.bannerContent}>
-            <Text style={styles.courseTitle}>{course.title}</Text>
-            {course.membershipType && (
-              <View style={styles.membershipBadge}>
-                <Text style={styles.membershipText}>
-                  {course.membershipType}
-                </Text>
-              </View>
-            )}
-          </View>
         </View>
 
-        {/* Course Details Section */}
-        <View style={styles.detailsContainer}>
-          {/* Course Description */}
-          <View style={styles.descriptionCard}>
-            <Text style={styles.sectionTitle}>About This Course</Text>
+        {/* Course Details Content */}
+        <View style={styles.content}>
+          <View style={styles.topInfoRow}>
+            <Text style={styles.detailPageTitle}>{displayTitle}</Text>
+          </View>
 
-            {/* Description - Note: React Native doesn't support dangerouslySetInnerHTML */}
-            <Text style={styles.descriptionText}>{course.description}</Text>
-
-            {/* Course Info */}
-            <View style={styles.courseInfoSection}>
-              <View style={styles.infoRow}>
-                <View style={styles.infoItem}>
-                  <View style={styles.infoIconContainer}>
-                    <MaterialCommunityIcons
-                      name="book-open-variant"
-                      size={24}
-                      color="#DC2626"
-                    />
-                  </View>
-                  <View>
-                    <Text style={styles.infoLabel}>Total Chapters</Text>
-                    <Text style={styles.infoValue}>{course.chapters} Chapters</Text>
-                  </View>
-                </View>
-
-                {course.sections && course.sections.length > 0 && (
-                  <View style={styles.infoItem}>
-                    <View style={[styles.infoIconContainer, styles.blueIcon]}>
-                      <MaterialCommunityIcons
-                        name="play-circle"
-                        size={24}
-                        color="#3B82F6"
-                      />
-                    </View>
-                    <View>
-                      <Text style={styles.infoLabel}>Total Lectures</Text>
-                      <Text style={styles.infoValue}>
-                        {course.sections.reduce(
-                          (sum, section) => sum + (section.lectures || 0),
-                          0,
-                        )}{' '}
-                        Lectures
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </View>
-
-              <Text style={styles.learningTitle}>What you'll learn:</Text>
-              <View style={styles.learningList}>
-                {[
-                  'Comprehensive understanding of core concepts',
-                  'Practical skills and real-world applications',
-                  'Expert guidance and support',
-                  'Access to all course materials and resources',
-                ].map((item, index) => (
-                  <View key={index} style={styles.learningItem}>
-                    <MaterialCommunityIcons
-                      name="check-circle"
-                      size={20}
-                      color="#DC2626"
-                      style={styles.checkmarkIcon}
-                    />
-                    <Text style={styles.learningText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>VALIDITY</Text>
+              <Text style={styles.statValue}>{course.courseValidityMonths || course.validityMonths || 1} Month{(course.courseValidityMonths || 1) == 1 ? '' : 's'}</Text>
             </View>
           </View>
 
-          {/* Purchase Section */}
-          {!course.isPurchased && (
-            <View style={styles.purchaseCard}>
-              <View style={styles.priceSection}>
-                <Text style={styles.priceLabel}>Total Price</Text>
-                <View style={styles.priceRow}>
-                  <Text style={styles.price}>₹{course.price}</Text>
-                  {course.discount > 0 && (
-                    <View style={styles.discountContainer}>
-                      <Text style={styles.originalPrice}>
-                        ₹{Math.round(course.price / (1 - course.discount / 100))}
-                      </Text>
-                      <Text style={styles.discountText}>
-                        Save {course.discount}%
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.buyButton,
-                  purchasing && styles.buyButtonDisabled,
-                ]}
-                onPress={handleBuyNow}
-                disabled={purchasing}>
-                <LinearGradient
-                  colors={['#DC2626', '#B91C1C']}
-                  style={styles.buyButtonGradient}>
-                  {purchasing ? (
-                    <>
-                      <ActivityIndicator color="#FFF" size="small" />
-                      <Text style={styles.buyButtonText}>Processing...</Text>
-                    </>
-                  ) : (
-                    <>
-                      <MaterialCommunityIcons
-                        name="credit-card"
-                        size={20}
-                        color="#FFF"
-                        style={styles.cartIcon}
-                      />
-                      <Text style={styles.buyButtonText}>Buy Now</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Already Purchased Message */}
-          {course.isPurchased && (
-            <View style={styles.purchasedCard}>
-              <View style={styles.purchasedIconContainer}>
-                <MaterialCommunityIcons
-                  name="check-circle"
-                  size={32}
-                  color="#FFF"
-                />
-              </View>
-              <View style={styles.purchasedTextContainer}>
-                <Text style={styles.purchasedTitle}>You own this course</Text>
-                <Text style={styles.purchasedDescription}>
-                  Access all content in My Courses
-                </Text>
-              </View>
-            </View>
-          )}
+          <View style={styles.descriptionSection}>
+            <Text style={styles.sectionTitle}>Course Description</Text>
+            <Text style={styles.descriptionBody}>{displayDescription}</Text>
+          </View>
         </View>
       </ScrollView>
+
+      {/* Floating Price/Purchase Bar */}
+      <View style={styles.footer}>
+        {!isOwned ? (
+          <View style={styles.purchaseRow}>
+            <View style={styles.priceInfo}>
+              <Text style={styles.footerPriceLabel}>Total Tuition</Text>
+              <View style={styles.footerPriceRow}>
+                <Text style={styles.footerPriceCurrency}>₹</Text>
+                <Text style={styles.footerPriceValue}>{displayPrice}</Text>
+                {discountPercent > 0 && <Text style={styles.footerOriginalPrice}>₹{originalPrice}</Text>}
+              </View>
+            </View>
+            <TouchableOpacity 
+              style={[styles.buyBtn, purchasing && styles.btnDisabled]} 
+              onPress={handleBuyNow} 
+              disabled={purchasing}
+            >
+              <LinearGradient colors={['#DC2626', '#991b1b']} style={styles.btnGradient}>
+                {purchasing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.btnText}>Buy Course Now</Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity 
+            style={styles.fullWidthBtn} 
+            onPress={() => navigation.navigate('MainApp', { screen: 'Mycourse' })}
+          >
+            <LinearGradient colors={['#10b981', '#059669']} style={styles.btnGradient}>
+              <Text style={styles.btnText}>View in Your Library</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+      </View>
+      <Toast />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#6B7280',
-  },
-  errorContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  errorIconContainer: {
-    width: 96,
-    height: 96,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  errorTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  errorDescription: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  backButton: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  backButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  backIconButton: {
-    padding: 8,
-  },
-  backIcon: {
-    fontSize: 24,
-    color: '#374151',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 40,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  bannerContainer: {
-    width: width,
-    height: height * 0.35,
-    position: 'relative',
-  },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-  },
-  bannerGradient: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '70%',
-  },
-  bannerContent: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-  },
-  courseTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFF',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: {width: 0, height: 2},
-    textShadowRadius: 10,
-  },
-  membershipBadge: {
-    backgroundColor: '#DC2626',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  membershipText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  detailsContainer: {
-    padding: 16,
-  },
-  descriptionCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  descriptionText: {
-    fontSize: 16,
-    color: '#374151',
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  courseInfoSection: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  infoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  infoIconContainer: {
-    width: 48,
-    height: 48,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  blueIcon: {
-    backgroundColor: '#DBEAFE',
-  },
-  checkmarkIcon: {
-    marginTop: 2,
-    marginRight: 12,
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  infoValue: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  learningTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 12,
-  },
-  learningList: {
-    gap: 12,
-  },
-  learningItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-    learningText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#374151',
-    lineHeight: 20,
-  },
-  purchaseCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-  },
-  priceSection: {
-    marginBottom: 16,
-  },
-  priceLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  price: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  discountContainer: {
-    gap: 2,
-  },
-  originalPrice: {
-    fontSize: 12,
-    color: '#6B7280',
-    textDecorationLine: 'line-through',
-  },
-  discountText: {
-    fontSize: 10,
-    color: '#10B981',
-    fontWeight: '600',
-  },
-  buyButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  buyButtonDisabled: {
-    opacity: 0.5,
-  },
-  buyButtonGradient: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-    buyButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  purchasedCard: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 2,
-    borderColor: '#86EFAC',
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  purchasedIconContainer: {
-    width: 64,
-    height: 64,
-    backgroundColor: '#10B981',
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  purchasedIcon: {
-    color: '#FFF',
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  purchasedTextContainer: {
-    flex: 1,
-  },
-  purchasedTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#064E3B',
-  },
-  purchasedDescription: {
-    fontSize: 12,
-    color: '#047857',
-    fontWeight: '500',
-    marginTop: 4,
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  loadingText: { marginTop: 12, color: '#4B5563', fontWeight: '600' },
+  errorText: { fontSize: 16, color: '#DC2626', fontWeight: 'bold' },
+  backBtn: { marginTop: 20, padding: 10, backgroundColor: '#111827', borderRadius: 8 },
+  backBtnText: { color: '#fff' },
+  header: { height: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  headerIcon: { padding: 4 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827', flex: 1, textAlign: 'center', marginHorizontal: 16 },
+  scrollContent: { paddingBottom: 120 },
+  bannerContainer: { width: '100%', height: 280, backgroundColor: '#f3f4f6' },
+  bannerImage: { width: '100%', height: '100%' },
+  content: { padding: 24, paddingTop: 20 },
+  topInfoRow: { marginBottom: 16 },
+  detailPageTitle: { fontSize: 32, fontWeight: '900', color: '#111827', lineHeight: 40 },
+  statsRow: { marginTop: 10, paddingVertical: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#f3f4f6' },
+  statItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  statLabel: { fontSize: 12, fontWeight: '800', color: '#6B7280', letterSpacing: 1 },
+  statValue: { fontSize: 14, fontWeight: '800', color: '#111827' },
+  descriptionSection: { marginTop: 24 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#111827', marginBottom: 12 },
+  descriptionBody: { fontSize: 16, lineHeight: 26, color: '#4B5563', textAlign: 'justify' },
+  footer: { position: 'absolute', bottom: 0, width: '100%', backgroundColor: '#fff', padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  priceInfo: { flex: 1 },
+  footerPriceLabel: { fontSize: 11, fontWeight: '800', color: '#6B7280', letterSpacing: 0.5, marginBottom: 4 },
+  footerPriceRow: { flexDirection: 'row', alignItems: 'baseline' },
+  footerPriceCurrency: { fontSize: 16, fontWeight: '900', color: '#111827', marginRight: 2 },
+  footerPriceValue: { fontSize: 26, fontWeight: '900', color: '#111827' },
+  footerOriginalPrice: { fontSize: 14, color: '#9CA3AF', textDecorationLine: 'line-through', marginLeft: 8, fontWeight: '600' },
+  buyBtn: { flex: 1, marginLeft: 20, height: 56, borderRadius: 16, overflow: 'hidden' },
+  btnGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  btnDisabled: { opacity: 0.7 },
+  fullWidthBtn: { width: '100%', height: 56, borderRadius: 16, overflow: 'hidden' },
 });
 
 export default BuyCourseDetailScreen;

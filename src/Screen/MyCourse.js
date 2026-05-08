@@ -1,642 +1,439 @@
-import React, { useState, useMemo, useEffect } from 'react';
+// src/Screen/MyCourse.js
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   FlatList,
-  ActivityIndicator,
   TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
   StyleSheet,
-  StatusBar,
-  Image,
-  Animated,
   Dimensions,
+  Image,
   TextInput,
+  SafeAreaView,
+  StatusBar,
+  Animated,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import LinearGradient from 'react-native-linear-gradient';
 import { getUserCourses } from '../Services/courseService';
 import { useAuth } from '../Context/AuthContext';
-import { checkCourseExpiry } from  '../unities/courseExpiry'
-import { fixBrokenProgressDocuments, checkIfMigrationNeeded} from '../unities/migrationFix'
-import Toast from 'react-native-toast-message';
 import CourseCard from '../Components/CourseCard';
-import FilterTabs from '../Components/FilterTabs';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
-const isTablet = width >= 768;
 
-const CoursesScreen = ({ onCourseClick, navigation }) => {
+const MyCourse = ({ navigation }) => {
+  const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState('all');
   const [courses, setCourses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const { user } = useAuth();
-  const spinValue = new Animated.Value(0);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // THREE TABS: All, Completed, Expired
+  // Filter tabs
   const filterTabs = [
     { id: 'all', label: 'All' },
     { id: 'completed', label: 'Completed' },
     { id: 'expired', label: 'Expired' },
   ];
 
-  // Rotation animation
   useEffect(() => {
-    Animated.loop(
-      Animated.timing(spinValue, {
-        toValue: 1,
-        duration: 3000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, []);
-
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  // Fetch user's purchased courses from Firestore
-  useEffect(() => {
-    const fetchUserCourses = async () => {
-      if (!user || !user.uid) {
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        console.log('📚 Fetching purchased courses for user:', user.uid);
-        
-        // Check if migration is needed
-        const needsMigration = await checkIfMigrationNeeded(user.uid);
-        
-        if (needsMigration) {
-          console.log('🔧 Migration needed! Fixing broken progress documents...');
-          Toast.show({
-            type: 'info',
-            text1: 'Fixing course progress data...',
-          });
-          
-          const migrationResult = await fixBrokenProgressDocuments(user.uid);
-          
-          if (migrationResult.success) {
-            Toast.show({
-              type: 'success',
-              text1: `✅ Fixed ${migrationResult.fixed} course(s)`,
-            });
-            console.log('✅ Migration complete:', migrationResult);
-          } else {
-            Toast.show({
-              type: 'error',
-              text1: 'Migration had some errors',
-            });
-            console.error('❌ Migration errors:', migrationResult);
-          }
-        }
-        
-        const result = await getUserCourses(user.uid);
-
-        if (result.success) {
-          const coursesWithStatus = result.courses.map(course => {
-            const courseWithExpiry = checkCourseExpiry(course);
-            let finalStatus = courseWithExpiry.status;
-            const progress = course.progress || 0;
-            
-            console.log(`📊 Course: ${course.courseTitle}, Progress: ${progress}%, Expired: ${courseWithExpiry.isExpired}`);
-            
-            if (courseWithExpiry.isExpired) {
-              finalStatus = 'EXPIRED';
-              console.log(`❌ ${course.courseTitle} is EXPIRED`);
-            } else if (progress === 100) {
-              finalStatus = 'COMPLETED';
-              console.log(`✅ ${course.courseTitle} is COMPLETED (100%)`);
-            } else if (progress > 0) {
-              finalStatus = 'IN_PROGRESS';
-              console.log(`⏳ ${course.courseTitle} is IN_PROGRESS (${progress}%)`);
-            } else {
-              finalStatus = 'NOT_STARTED';
-              console.log(`🆕 ${course.courseTitle} is NOT_STARTED`);
-            }
-            
-            return {
-              ...courseWithExpiry,
-              status: finalStatus,
-              progress: progress
-            };
-          });
-          
-          console.log('✅ User courses with status:', coursesWithStatus.map(c => ({
-            title: c.courseTitle,
-            progress: c.progress,
-            status: c.status
-          })));
-          
-          setCourses(coursesWithStatus);
-        } else {
-          console.error('❌ Failed to fetch user courses:', result.error);
-          setError(result.error);
-        }
-      } catch (err) {
-        console.error('❌ Error in fetchUserCourses:', err);
-        setError('An unexpected error occurred');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchUserCourses();
   }, [user]);
 
-  // FIXED FILTERING: All (active courses), Completed (100%), Expired
+  const fetchUserCourses = async () => {
+    if (!user?.uid) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const result = await getUserCourses(user.uid);
+
+      if (result.success) {
+        // ✅ PORTED LOGIC: Process courses with Web-priority status
+        const coursesWithStatus = result.courses.map(course => {
+          let finalStatus;
+          
+          if (course.isExpired || course.enrolledStatus === 'expired') {
+            finalStatus = 'EXPIRED';
+          } else if (course.progress >= 100) {
+            finalStatus = 'COMPLETED';
+          } else if (course.progress > 0) {
+            finalStatus = 'IN_PROGRESS';
+          } else {
+            finalStatus = 'NOT_STARTED';
+          }
+          
+          return {
+            ...course,
+            status: finalStatus,
+            progress: course.progress || 0
+          };
+        });
+        setCourses(coursesWithStatus);
+        setError(null);
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError('Failed to load courses');
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchUserCourses();
+  };
+
+  // ✅ PORTED LOGIC: Strict Filtering
   const filteredCourses = useMemo(() => {
-    // Safety check: ensure courses is an array
-    if (!courses || !Array.isArray(courses)) {
-      console.warn('⚠️ courses is not an array:', courses);
-      return { all: [], completed: [], expired: [], counts: { all: 0, completed: 0, expired: 0 } };
-    }
-
     let result = courses;
-
-    console.log('🔍 Filtering courses with activeFilter:', activeFilter);
-    console.log('📦 Total courses:', courses.length);
     
-    // Apply status filter
     if (activeFilter === 'all') {
-      result = courses.filter(c => {
-        const isNotExpired = c.status !== 'EXPIRED';
-        const isNotCompleted = c.status !== 'COMPLETED';
-        return isNotExpired && isNotCompleted;
-      });
-      console.log(`📋 "All" tab: ${result.length} active courses`);
+      // Show only ACTIVE (Not expired & Not completed)
+      result = courses.filter(c => c.status !== 'EXPIRED' && c.status !== 'COMPLETED');
     } else if (activeFilter === 'completed') {
-      result = courses.filter(c => {
-        const isCompleted = c.progress === 100 && c.status === 'COMPLETED';
-        if (isCompleted) {
-          console.log(`✅ Including in Completed: ${c.courseTitle} (${c.progress}%)`);
-        }
-        return isCompleted;
-      });
-      console.log(`🎉 "Completed" tab: ${result.length} completed courses`);
+      result = courses.filter(c => c.progress >= 100 || c.status === 'COMPLETED');
     } else if (activeFilter === 'expired') {
-      result = courses.filter(c => c.status === 'EXPIRED');
-      console.log(`❌ "Expired" tab: ${result.length} expired courses`);
+      result = courses.filter(c => c.status === 'EXPIRED' || c.isExpired || c.enrolledStatus === 'expired');
     }
     
-    // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
-      result = result.filter((course) => {
-        return (
-          course.title?.toLowerCase().includes(query) ||
-          course.courseTitle?.toLowerCase().includes(query) ||
-          course.membershipType?.toLowerCase().includes(query) ||
-          course.description?.toLowerCase().includes(query)
-        );
-      });
-      console.log(`🔍 After search: ${result.length} courses`);
+      result = result.filter(course => (
+        (course.courseTitle || course.title || '').toLowerCase().includes(query) ||
+        (course.description || '').toLowerCase().includes(query)
+      ));
     }
     
     return result;
   }, [activeFilter, courses, searchQuery]);
 
-  // FIXED COUNT: All, Completed, Expired
-  const courseCounts = useMemo(() => {
-    const counts = {
-      all: courses.filter(c => c.status !== 'EXPIRED' && c.status !== 'COMPLETED').length,
-      completed: courses.filter(c => c.progress === 100 && c.status === 'COMPLETED').length,
-      expired: courses.filter(c => c.status === 'EXPIRED').length,
-    };
-    
-    console.log('📊 Course counts:', counts);
-    return counts;
-  }, [courses]);
+  const courseCounts = useMemo(() => ({
+    all: courses.filter(c => c.status !== 'EXPIRED' && c.status !== 'COMPLETED').length,
+    completed: courses.filter(c => c.progress >= 100 || c.status === 'COMPLETED').length,
+    expired: courses.filter(c => c.status === 'EXPIRED' || c.isExpired || c.enrolledStatus === 'expired').length,
+  }), [courses]);
 
-  const handleClearSearch = () => {
-    setSearchQuery('');
+  const handleCoursePress = (courseId) => {
+    const course = courses.find(c => c.id === courseId);
+    if (course?.status === 'EXPIRED') {
+      Toast.show({ type: 'error', text1: 'Course Expired', text2: 'Please contact support to renew access' });
+      return;
+    }
+    navigation.navigate('VideoPlayer', { courseId });
   };
 
   const renderHeader = () => (
-    <View>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerTop}>
-            <Text style={styles.headerTitle}>My Courses</Text>
-            <Image
-              source={require('../assets/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
+    <View style={styles.header}>
+      {/* Branding Header */}
+      <View style={styles.brandingSection}>
+        <View style={styles.logoAndTitle}>
+          <Image source={require('../assets/Logo1.jpeg')} style={styles.brandingLogo} resizeMode="contain" />
+          <View>
+            <Text style={styles.brandingTitle}>BRAHMA DIVINE GRACE</Text>
+            <Text style={styles.brandingSubtitle}>My Learning Library</Text>
           </View>
-          <Text style={styles.headerSubtitle}>Your purchased courses and progress</Text>
         </View>
       </View>
 
-      {/* Search Input */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchInputContainer}>
-          <Icon name="search" size={20} color="#999" style={styles.searchIcon} />
+      <View style={styles.controlsSection}>
+        {/* Search Bar */}
+        <View style={styles.searchBar}>
+          <Icon name="search" size={22} color="#999" style={styles.searchIcon} />
           <TextInput
-            style={styles.searchInputWithIcon}
-            placeholder="Search courses..."
+            style={styles.searchInput}
+            placeholder="Search your courses..."
             placeholderTextColor="#999"
             value={searchQuery}
             onChangeText={setSearchQuery}
-            blurOnSubmit={false}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="search"
-            enablesReturnKeyAutomatically={true}
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={handleClearSearch} style={styles.clearIcon}>
-              <Icon name="close" size={20} color="#999" />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Icon name="close" size={22} color="#999" />
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
-      </View>
 
-      {/* Filter Tabs */}
-      <View style={styles.tabsContainer}>
-        <FilterTabs
-          tabs={filterTabs.map(tab => ({
-            ...tab,
-            label: `${tab.label} ${courseCounts[tab.id] > 0 ? `(${courseCounts[tab.id]})` : ''}`
-          }))}
-          activeTab={activeFilter}
-          onTabChange={setActiveFilter}
-        />
-      </View>
+        {/* Filter Tabs */}
+        <View style={styles.tabsContainer}>
+          {filterTabs.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.tab, activeFilter === tab.id && styles.activeTab]}
+              onPress={() => setActiveFilter(tab.id)}
+            >
+              <Text style={[styles.tabLabel, activeFilter === tab.id && styles.activeTabLabel]}>
+                {tab.label} {courseCounts[tab.id] > 0 ? `(${courseCounts[tab.id]})` : ''}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      {/* Search Results Count */}
-      {searchQuery && filteredCourses.length > 0 && (
-        <View style={styles.resultsCount}>
-          <Text style={styles.resultsText}>
-            Found <Text style={styles.resultsBold}>{filteredCourses.length}</Text> course{filteredCourses.length !== 1 ? 's' : ''} matching "{searchQuery}"
+        {/* Search Result Count */}
+        {searchQuery && (
+          <Text style={styles.resultCount}>
+            Found {filteredCourses.length} matching course{filteredCourses.length !== 1 ? 's' : ''}
           </Text>
-        </View>
-      )}
+        )}
 
-      {/* Completed Congratulations Banner */}
-      {activeFilter === 'completed' && filteredCourses.length > 0 && (
-        <View style={styles.congratsBanner}>
-          <View style={styles.congratsIcon}>
-            <Text style={styles.congratsEmoji}>🎉</Text>
-          </View>
-          <View style={styles.congratsText}>
-            <Text style={styles.congratsTitle}>Congratulations!</Text>
-            <Text style={styles.congratsSubtitle}>
-              You've completed {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''}. Keep up the great work!
-            </Text>
-          </View>
-        </View>
-      )}
+        {/* ✅ PORTED UI: Congratulations Banner */}
+        {activeFilter === 'completed' && filteredCourses.length > 0 && (
+          <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={styles.congratsBanner}>
+            <View style={styles.bannerIconCircle}>
+              <Text style={styles.bannerEmoji}>🎉</Text>
+            </View>
+            <View style={styles.bannerTextContainer}>
+              <Text style={styles.bannerTitle}>Congratulations!</Text>
+              <Text style={styles.bannerSub}>You've completed {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''}. Great job!</Text>
+            </View>
+          </LinearGradient>
+        )}
+
+        {/* ✅ PORTED UI: Expiry Banner */}
+        {activeFilter === 'expired' && filteredCourses.length > 0 && (
+          <LinearGradient colors={['#fef2f2', '#fee2e2']} style={styles.expiryBanner}>
+            <View style={[styles.bannerIconCircle, { backgroundColor: '#ef4444' }]}>
+              <Text style={styles.bannerEmoji}>⏰</Text>
+            </View>
+            <View style={styles.bannerTextContainer}>
+              <Text style={[styles.bannerTitle, { color: '#991b1b' }]}>Course Access Expired</Text>
+              <Text style={[styles.bannerSub, { color: '#b91c1c' }]}>Contact support to renew your access and continue learning.</Text>
+            </View>
+          </LinearGradient>
+        )}
+      </View>
     </View>
   );
 
-  const renderEmptyState = () => {
-    if (courses.length === 0) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Animated.View style={[styles.emptyIcon, { transform: [{ rotate: spin }] }]}>
-            <Text style={styles.emptyEmoji}>📚</Text>
-          </Animated.View>
-          <Text style={styles.emptyTitle}>No purchased courses yet</Text>
-          <Text style={styles.emptySubtitle}>Browse courses in the Home section to get started</Text>
-        </View>
-      );
-    }
-
-    if (filteredCourses.length === 0) {
-      return (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
-            <Text style={styles.emptyEmoji}>🔍</Text>
-          </View>
-          <Text style={styles.emptyTitle}>No courses found</Text>
-          <Text style={styles.emptySubtitle}>
-            {searchQuery 
-              ? 'Try adjusting your search terms' 
-              : activeFilter === 'completed' 
-                ? 'Complete a course to 100% to see it here! 🎯'
-                : `No courses in "${filterTabs.find(t => t.id === activeFilter)?.label}"`
-            }
-          </Text>
-        </View>
-      );
-    }
-
-    return null;
-  };
-
-  const renderCourseItem = ({ item, index }) => {
-    // Debug: Log course data to see what we're working with
-    console.log(`📚 MyCourse - Course Item ${index + 1}:`, {
-      title: item.title || item.courseTitle,
-      id: item.id,
-      progress: item.progress,
-      status: item.status,
-      isExpired: item.isExpired
-    });
-
-    return (
-      <View style={[styles.courseCard, isTablet && styles.courseCardTablet]}>
-        <CourseCard
-          courseId={item.id}
-          title={item.title || item.courseTitle}
-          courseTitle={item.courseTitle}
-          courseName={item.courseName}
-          membershipType={item.membershipType}
-          thumbnail={item.thumbnail}
-          courseThumbnail={item.courseThumbnail}
-          thumbnailUrl={item.thumbnailUrl}
-          imageUrl={item.imageUrl}
-          status={item.status}
-          progress={item.progress || 0}
-          chapters={item.chapters || 0}
-          isPurchased={true}
-          price={item.price}
-          expiryDate={item.expiryDate}
-          showStatus={false}
-          onCourseClick={onCourseClick}
-          navigation={navigation}
-        />
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyIconCircle}>
+        <Icon name={searchQuery ? "search-off" : activeFilter === 'all' ? "auto-stories" : "history"} size={48} color="#999" />
       </View>
-    );
-  };
+      <Text style={styles.emptyTitle}>
+        {searchQuery ? 'No courses found' : `No ${activeFilter} courses`}
+      </Text>
+      <Text style={styles.emptySubtitle}>
+        {searchQuery ? 'Try adjusting your search terms' : 'Browse the Home section to find your next adventure!'}
+      </Text>
+    </View>
+  );
 
-  // Loading state
-  if (isLoading) {
+  if (isLoading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#DC2626" />
-        <Text style={styles.loadingText}>Loading your courses...</Text>
-      </View>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <View style={styles.errorContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-        <View style={styles.errorIcon}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
-        </View>
-        <Text style={styles.errorTitle}>Failed to load courses</Text>
-        <Text style={styles.errorSubtitle}>{error}</Text>
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={() => {
-            setError(null);
-            setIsLoading(true);
-          }}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
+        <Text style={styles.loadingText}>Syncing library...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <FlatList
         data={filteredCourses}
-        renderItem={renderCourseItem}
+        renderItem={({ item }) => (
+          <View style={styles.cardWrapper}>
+            <CourseCard
+              courseId={item.id}
+              title={item.courseTitle || item.title}
+              membershipType={item.membershipType}
+              thumbnail={item.courseThumbnail || item.thumbnail}
+              status={item.status}
+              progress={item.progress}
+              chapters={item.chapters || 0}
+              isPurchased={true}
+              expiryDate={item.expiryDate}
+              showStatus={false}
+              onCourseClick={handleCoursePress}
+            />
+          </View>
+        )}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmptyState}
-        contentContainerStyle={[
-          styles.listContent,
-          filteredCourses.length === 0 && styles.listContentEmpty
-        ]}
-        numColumns={isTablet ? 2 : 1}
-        key={isTablet ? 'tablet' : 'phone'}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DC2626']} />}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
-      <Toast />
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#fff',
   },
-  loadingContainer: {
+  centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
   loadingText: {
+    marginTop: 12,
+    color: '#6b7280',
+    fontSize: 14,
+  },
+  brandingSection: {
+    paddingHorizontal: 16,
+    paddingTop: 32, // Added extra top padding to avoid camera notch
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    backgroundColor: '#fff',
+  },
+  logoAndTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  brandingLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  brandingTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#111827',
+    letterSpacing: -0.5,
+  },
+  brandingSubtitle: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontWeight: '600',
+    marginTop: -2,
+  },
+  controlsSection: {
+    padding: 16,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 14,
+    height: 50,
+  },
+  searchIcon: {
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#111827',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    marginTop: 20,
+    gap: 12,
+  },
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+  },
+  activeTab: {
+    backgroundColor: '#DC2626',
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#6b7280',
+  },
+  activeTabLabel: {
+    color: '#fff',
+  },
+  resultCount: {
     marginTop: 16,
-    fontSize: 16,
+    fontSize: 13,
     color: '#6b7280',
     fontWeight: '500',
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 24,
-  },
-  errorIcon: {
-    width: 96,
-    height: 96,
-    backgroundColor: '#fee2e2',
-    borderRadius: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  errorEmoji: {
-    fontSize: 48,
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#dc2626',
-    marginBottom: 8,
-  },
-  errorSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    backgroundColor: '#DC2626',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  header: {
-    backgroundColor: '#fff',
-    paddingTop: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  headerContent: {
-    gap: 4,
-    paddingVertical:25
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical:-11
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#111827',
-    
-  },
-  logo: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-  },
-  headerSubtitle: {
-    fontSize: 15,
-    color: '#6b7280',
-    marginTop: 4,
-    marginVertical:-24
-  },
-  searchContainer: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInputWithIcon: {
-    flex: 1,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: '#111827',
-  },
-  clearIcon: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  tabsContainer: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-  },
-  resultsCount: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-  },
-  resultsText: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  resultsBold: {
-    fontWeight: '700',
-    color: '#DC2626',
-  },
   congratsBanner: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    backgroundColor: '#ecfdf5',
-    borderWidth: 2,
-    borderColor: '#86efac',
-    borderRadius: 12,
+    marginTop: 20,
     padding: 16,
+    borderRadius: 16,
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#bcf0da',
   },
-  congratsIcon: {
+  expiryBanner: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  bannerIconCircle: {
     width: 48,
     height: 48,
-    backgroundColor: '#22c55e',
     borderRadius: 24,
+    backgroundColor: '#10b981',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 16,
   },
-  congratsEmoji: {
+  bannerEmoji: {
     fontSize: 24,
   },
-  congratsText: {
+  bannerTextContainer: {
     flex: 1,
-    gap: 4,
   },
-  congratsTitle: {
+  bannerTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#166534',
+    fontWeight: '800',
+    color: '#065f46',
   },
-  congratsSubtitle: {
-    fontSize: 14,
-    color: '#15803d',
+  bannerSub: {
+    fontSize: 12,
+    color: '#047857',
+    marginTop: 2,
+    lineHeight: 16,
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: 40,
   },
-  listContentEmpty: {
-    flexGrow: 1,
-  },
-  courseCard: {
-    padding: 8,
-  },
-  courseCardTablet: {
-    width: '50%',
+  cardWrapper: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
   },
   emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 64,
+    paddingVertical: 80,
+    paddingHorizontal: 40,
   },
-  emptyIcon: {
-    width: 96,
-    height: 96,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 48,
+  emptyIconCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#f3f4f6',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-  },
-  emptyEmoji: {
-    fontSize: 48,
   },
   emptyTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#6b7280',
-    marginBottom: 8,
+    fontWeight: '700',
+    color: '#4b5563',
+    marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 14,
@@ -645,4 +442,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CoursesScreen;
+export default MyCourse;

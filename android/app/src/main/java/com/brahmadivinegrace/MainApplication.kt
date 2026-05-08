@@ -1,4 +1,4 @@
-package com.lmsapp
+package com.brahmadivinegrace
 
 import android.app.Application
 import com.facebook.react.PackageList

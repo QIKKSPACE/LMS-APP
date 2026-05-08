@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,307 +10,383 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  Modal,
+  FlatList,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
-// You'll need to install these packages:
-// npm install react-native-linear-gradient
-// npm install react-native-toast-message
-// cd ios && pod install (for iOS)
+const { width, height } = Dimensions.get('window');
+
+const countries = [
+  { code: '+91', flag: '🇮🇳', name: 'India' },
+  { code: '+1', flag: '🇺🇸', name: 'USA' },
+  { code: '+971', flag: '🇦🇪', name: 'UAE' },
+  { code: '+44', flag: '🇬🇧', name: 'UK' },
+  { code: '+966', flag: '🇸🇦', name: 'Saudi Arabia' },
+  { code: '+974', flag: '🇶🇦', name: 'Qatar' },
+  { code: '+965', flag: '🇰🇼', name: 'Kuwait' },
+  { code: '+968', flag: '🇴🇲', name: 'Oman' },
+  { code: '+65', flag: '🇸🇬', name: 'Singapore' },
+  { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+1', flag: '🇨🇦', name: 'Canada' },
+  { code: '+49', flag: '🇩🇪', name: 'Germany' },
+  { code: '+33', flag: '🇫🇷', name: 'France' },
+  { code: '+81', flag: '🇯🇵', name: 'Japan' },
+  { code: '+92', flag: '🇵🇰', name: 'Pakistan' },
+  { code: '+880', flag: '🇧🇩', name: 'Bangladesh' },
+  { code: '+977', flag: '🇳🇵', name: 'Nepal' },
+  { code: '+94', flag: '🇱🇰', name: 'Sri Lanka' },
+];
 
 const AuthScreen = () => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-  const [errors, setErrors] = useState({});
+  // Steps: 0 = Mobile, 1 = OTP
+  const [step, setStep] = useState(0);
+  const [countryCode, setCountryCode] = useState('+91');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [otp, setOtp] = useState('');
+  const [confirmation, setConfirmation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [isCountryModalVisible, setIsCountryModalVisible] = useState(false);
 
-  const { login, signup } = useAuth();
+  const { sendOTP, loginWithOTP } = useAuth();
 
-  const handleChange = (name, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Subtle pulse for logo
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const handleMobileChange = (text) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 15);
+    setMobileNumber(cleaned);
+    if (error) setError('');
   };
-  
 
-  const validateForm = () => {
-    const newErrors = {};
-
-    if (!isLogin && !formData.name.trim()) {
-      newErrors.name = 'Name is required';
-    }
-
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    if (!isLogin && formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const handleOtpChange = (text) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 6);
+    setOtp(cleaned);
+    if (error) setError('');
   };
 
-  const handleSubmit = async () => {
-    if (!validateForm()) {
-      Toast.show({
-        type: 'error',
-        text1: 'Validation Error',
-        text2: 'Please fix the errors in the form'
-      });
+  const handleRequestOTP = async () => {
+    if (!mobileNumber || mobileNumber.length < 7) {
+      setError('Please enter a valid mobile number');
       return;
     }
 
+    const fullPhoneNumber = `${countryCode}${mobileNumber}`;
+
     setIsLoading(true);
-
     try {
-      let result;
-      if (isLogin) {
-        console.log('Attempting login...');
-        result = await login(formData.email.trim(), formData.password);
-      } else {
-        console.log('Attempting signup...');
-        result = await signup(formData.name.trim(), formData.email.trim(), formData.password);
-      }
-
-      console.log('Auth result:', result);
-
-      if (result && result.success) {
+      const result = await sendOTP(fullPhoneNumber);
+      if (result.success) {
+        setConfirmation(result.confirmation);
+        setStep(1);
         Toast.show({
           type: 'success',
-          text1: 'Success',
-          text2: isLogin ? 'Login successful!' : 'Account created successfully!'
-        });
-        // Reset form
-        setFormData({
-          name: '',
-          email: '',
-          password: '',
-          confirmPassword: ''
+          text1: 'OTP Sent',
+          text2: 'Verification code sent to ' + countryCode + ' ' + mobileNumber,
         });
       } else {
-        const errorMessage = result?.error || 'An error occurred. Please try again.';
-        console.error('Auth failed:', errorMessage);
+        setError(result.error || 'Failed to send OTP');
         Toast.show({
           type: 'error',
           text1: 'Error',
-          text2: errorMessage
+          text2: result.error || 'Failed to send OTP',
         });
       }
-    } catch (error) {
-      console.error('Auth exception:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'An unexpected error occurred. Please try again.'
-      });
+    } catch (err) {
+      setError('An error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const toggleMode = () => {
-    setIsLogin(!isLogin);
-    setFormData({
-      name: '',
-      email: '',
-      password: '',
-      confirmPassword: ''
-    });
-    setErrors({});
+  const handleVerifyOTP = async () => {
+    if (!otp || otp.length !== 6) {
+      setError('Please enter the 6-digit OTP');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await loginWithOTP(otp, confirmation);
+      if (result.success) {
+        Toast.show({
+          type: 'success',
+          text1: 'Welcome',
+          text2: 'Logged in successfully!',
+        });
+      } else {
+        setError(result.error || 'Invalid OTP');
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: result.error || 'Invalid OTP',
+        });
+      }
+    } catch (err) {
+      setError('Verification failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+  const goBack = () => {
+    setStep(0);
+    setOtp('');
+    setError('');
+  };
+
+  const renderCountryItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.countryItem}
+      onPress={() => {
+        setCountryCode(item.code);
+        setIsCountryModalVisible(false);
+      }}
     >
+      <View style={styles.countryItemLeft}>
+        <Text style={styles.countryFlag}>{item.flag}</Text>
+        <Text style={styles.countryName}>{item.name}</Text>
+      </View>
+      <Text style={styles.countryCodeText}>{item.code}</Text>
+      {countryCode === item.code && (
+        <Ionicons name="checkmark-circle" size={20} color="#dc2626" style={{marginLeft: 10}} />
+      )}
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.container}>
       <LinearGradient
-        colors={['#fef2f2', '#ffffff', '#fff1f2']}
+        colors={['#fff5f5', '#ffffff', '#fff5f5']}
         style={styles.gradient}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
         >
-          {/* Logo and Header */}
-          <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Image
-                source={require('../assets/logo.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.title}>
-              {isLogin ? 'Welcome Back' : 'Create Account'}
-            </Text>
-            <Text style={styles.subtitle}>
-              {isLogin ? 'Sign in to continue learning' : 'Join us to start your learning journey'}
-            </Text>
-          </View>
-
-          {/* Auth Form Card */}
-          <View style={styles.card}>
-            {/* Name Field (Signup Only) */}
-            {!isLogin && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Full Name</Text>
-                <View style={[styles.inputContainer, errors.name && styles.inputError]}>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.name}
-                    onChangeText={(value) => handleChange('name', value)}
-                    placeholder="Enter your full name"
-                    placeholderTextColor="#9ca3af"
-                  />
-                </View>
-                {errors.name && (
-                  <Text style={styles.errorText}>{errors.name}</Text>
-                )}
-              </View>
-            )}
-
-            {/* Email Field */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email Address</Text>
-              <View style={[styles.inputContainer, errors.email && styles.inputError]}>
-                <TextInput
-                  style={styles.input}
-                  value={formData.email}
-                  onChangeText={(value) => handleChange('email', value)}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#9ca3af"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                />
-              </View>
-              {errors.email && (
-                <Text style={styles.errorText}>{errors.email}</Text>
-              )}
-            </View>
-
-            {/* Password Field */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={[styles.inputContainer, errors.password && styles.inputError]}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  value={formData.password}
-                  onChangeText={(value) => handleChange('password', value)}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#9ca3af"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeIcon}
-                >
-                  <Text style={styles.eyeText}>{showPassword ? '🙈' : '👁️'}</Text>
-                </TouchableOpacity>
-              </View>
-              {errors.password && (
-                <Text style={styles.errorText}>{errors.password}</Text>
-              )}
-            </View>
-
-            {/* Confirm Password Field (Signup Only) */}
-            {!isLogin && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirm Password</Text>
-                <View style={[styles.inputContainer, errors.confirmPassword && styles.inputError]}>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.confirmPassword}
-                    onChangeText={(value) => handleChange('confirmPassword', value)}
-                    placeholder="Confirm your password"
-                    placeholderTextColor="#9ca3af"
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                  />
-                </View>
-                {errors.confirmPassword && (
-                  <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-                )}
-              </View>
-            )}
-
-            {/* Submit Button */}
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={isLoading}
-              activeOpacity={0.8}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Animated.View
+              style={[
+                styles.content,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
             >
-              <LinearGradient
-                colors={['#dc2626', '#f43f5e', '#dc2626']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
-              >
-                {isLoading ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator color="#ffffff" size="small" />
-                    <Text style={styles.submitButtonText}>Processing...</Text>
+              <View style={styles.header}>
+                <Animated.View style={[styles.logoContainer, { transform: [{ scale: pulseAnim }] }]}>
+                  <View style={styles.logoRing}>
+                    <Image
+                      source={require('../assets/Logo1.jpeg')}
+                      style={styles.logo}
+                      resizeMode="cover"
+                    />
+                  </View>
+                </Animated.View>
+                <Text style={styles.title}>
+                  {step === 0 ? 'Welcome' : 'Verify OTP'}
+                </Text>
+                <Text style={styles.subtitle}>
+                  {step === 0
+                    ? 'Sign in or Sign up with your mobile number'
+                    : `Enter the 6-digit code sent to ${countryCode} ${mobileNumber}`}
+                </Text>
+              </View>
+
+              <View style={styles.card}>
+                {step === 0 ? (
+                  <View>
+                    <Text style={styles.label}>Mobile Number</Text>
+                    <View style={[styles.inputWrapper, error ? styles.inputError : null]}>
+                      <View style={styles.prefixContainer}>
+                        <TextInput
+                          style={styles.prefixInput}
+                          value={countryCode}
+                          onChangeText={(text) => {
+                            if (text === '' || (text.startsWith('+') && !isNaN(text.slice(1)))) {
+                              setCountryCode(text.slice(0, 5));
+                            }
+                          }}
+                          keyboardType="phone-pad"
+                          placeholder="+91"
+                        />
+                        <TouchableOpacity 
+                          onPress={() => setIsCountryModalVisible(true)}
+                          style={styles.chevronButton}
+                        >
+                          <Ionicons name="chevron-down" size={14} color="#9ca3af" />
+                        </TouchableOpacity>
+                        <View style={styles.divider} />
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="9999999999"
+                        placeholderTextColor="#9ca3af"
+                        keyboardType="phone-pad"
+                        value={mobileNumber}
+                        onChangeText={handleMobileChange}
+                        maxLength={15}
+                      />
+                    </View>
+                    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                    <TouchableOpacity
+                      onPress={handleRequestOTP}
+                      disabled={isLoading || mobileNumber.length < 7}
+                      style={[
+                        styles.mainButton,
+                        (isLoading || mobileNumber.length < 7) && styles.buttonDisabled,
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#dc2626', '#f43f5e']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.gradientButton}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={styles.buttonText}>Send OTP</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
                   </View>
                 ) : (
-                  <Text style={styles.submitButtonText}>
-                    {isLogin ? 'Sign In' : 'Create Account'}
-                  </Text>
+                  <View>
+                    <TouchableOpacity onPress={goBack} style={styles.backButton}>
+                      <Text style={styles.backButtonText}>← Edit Number</Text>
+                    </TouchableOpacity>
+
+                    <Text style={styles.label}>Enter OTP</Text>
+                    <View style={[styles.inputWrapper, error ? styles.inputError : null]}>
+                      <TextInput
+                        style={[styles.input, styles.otpInput]}
+                        placeholder="000000"
+                        placeholderTextColor="#9ca3af"
+                        keyboardType="number-pad"
+                        value={otp}
+                        onChangeText={handleOtpChange}
+                        maxLength={6}
+                        letterSpacing={10}
+                      />
+                    </View>
+                    {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+                    <TouchableOpacity
+                      onPress={handleVerifyOTP}
+                      disabled={isLoading || otp.length !== 6}
+                      style={[
+                        styles.mainButton,
+                        (isLoading || otp.length !== 6) && styles.buttonDisabled,
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#dc2626', '#f43f5e']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.gradientButton}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Text style={styles.buttonText}>Verify & Continue</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    <View style={styles.resendContainer}>
+                      <Text style={styles.resendText}>Didn't receive code? </Text>
+                      <TouchableOpacity onPress={handleRequestOTP} disabled={isLoading}>
+                        <Text style={styles.resendLink}>Resend OTP</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
+              </View>
 
-            {/* Toggle between Login and Signup */}
-            <View style={styles.toggleContainer}>
-              <Text style={styles.toggleText}>
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
+              <Text style={styles.footer}>
+                By continuing, you agree to our{' '}
+                <Text style={styles.footerLink}>Terms</Text> and{' '}
+                <Text style={styles.footerLink}>Privacy Policy</Text>
               </Text>
-              <TouchableOpacity onPress={toggleMode}>
-                <Text style={styles.toggleButton}>
-                  {isLogin ? 'Sign Up' : 'Sign In'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Footer */}
-          <Text style={styles.footer}>
-            By continuing, you agree to our Terms of Service and Privacy Policy
-          </Text>
-        </ScrollView>
+            </Animated.View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </LinearGradient>
 
-      {/* Toast Component */}
+      {/* Country Selection Modal */}
+      <Modal
+        visible={isCountryModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsCountryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Country</Text>
+              <TouchableOpacity onPress={() => setIsCountryModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={countries}
+              keyExtractor={(item) => item.code + item.name}
+              renderItem={renderCountryItem}
+              contentContainerStyle={styles.countryList}
+            />
+          </View>
+        </View>
+      </Modal>
+
       <Toast />
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
@@ -323,144 +399,236 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 40,
     justifyContent: 'center',
+    padding: 24,
+  },
+  content: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 40,
   },
   logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
+    marginBottom: 24,
+  },
+  logoRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: '#dc2626',
+    padding: 4,
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
     shadowColor: '#dc2626',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
     elevation: 8,
   },
   logo: {
-    width: 60,
-    height: 60,
+    width: 85,
+    height: 85,
+    borderRadius: 42.5,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#111827',
     marginBottom: 8,
-    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
     color: '#6b7280',
     textAlign: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
   },
   card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderRadius: 24,
     padding: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 20,
-    elevation: 10,
-  },
-  inputGroup: {
-    marginBottom: 20,
+    elevation: 5,
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  inputContainer: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
     borderRadius: 12,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
+    backgroundColor: '#f9fafb',
+    paddingHorizontal: 12,
+    height: 56,
   },
   inputError: {
     borderColor: '#ef4444',
   },
+  prefixContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+  },
+  prefixInput: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    width: 45,
+    textAlign: 'center',
+    padding: 0,
+  },
+  chevronButton: {
+    padding: 2,
+  },
+  divider: {
+    height: 24,
+    width: 1,
+    backgroundColor: '#d1d5db',
+    marginLeft: 8,
+  },
   input: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#1f2937',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    paddingLeft: 8,
   },
-  passwordInput: {
-    paddingRight: 40,
-  },
-  eyeIcon: {
-    padding: 8,
-    position: 'absolute',
-    right: 8,
-  },
-  eyeText: {
-    fontSize: 20,
+  otpInput: {
+    textAlign: 'center',
+    fontSize: 24,
+    letterSpacing: 8,
   },
   errorText: {
     color: '#ef4444',
     fontSize: 12,
-    marginTop: 4,
+    fontWeight: '600',
+    marginTop: 6,
+    marginLeft: 4,
   },
-  submitButton: {
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+  mainButton: {
+    marginTop: 24,
+    borderRadius: 5, // Requirement: 5px border radius
+    overflow: 'hidden',
     shadowColor: '#dc2626',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 4,
   },
-  submitButtonDisabled: {
-    opacity: 0.5,
+  buttonDisabled: {
+    opacity: 0.6,
   },
-  submitButtonText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flexDirection: 'row',
+  gradientButton: {
+    height: 56,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  toggleContainer: {
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  backButton: {
+    marginBottom: 20,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  resendContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: 20,
   },
-  toggleText: {
+  resendText: {
+    fontSize: 14,
     color: '#6b7280',
-    fontSize: 14,
   },
-  toggleButton: {
-    color: '#dc2626',
+  resendLink: {
     fontSize: 14,
-    fontWeight: '600',
+    color: '#dc2626',
+    fontWeight: '800',
+    textDecorationLine: 'underline',
   },
   footer: {
+    marginTop: 32,
     textAlign: 'center',
     color: '#9ca3af',
-    fontSize: 12,
-    marginTop: 24,
-    paddingHorizontal: 20,
+    fontSize: 13,
+  },
+  footerLink: {
+    color: '#dc2626',
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: height * 0.7,
+    padding: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    flex: 1,
+  },
+  countryList: {
+    paddingBottom: 20,
+  },
+  countryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  countryItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  countryFlag: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  countryName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  countryCodeText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#dc2626',
   },
 });
 
-export default AuthScreen;
+export default AuthScreen;

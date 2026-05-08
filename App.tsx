@@ -1,14 +1,16 @@
-import React from 'react';
 import { AuthProvider } from './src/Context/AuthContext';
 import AppNavigator from './src/Navigation/AppNavigator';
 import Toast from 'react-native-toast-message';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 const App = () => {
   return (
-    <AuthProvider>
-      <AppNavigator />
-      <Toast />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <AppNavigator />
+        <Toast />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 };
 

@@ -8,6 +8,51 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:311427704953:android:26459e0abbdd61f00b0ca8",
+        "android_client_info": {
+          "package_name": "com.brahmadivinegrace"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "311427704953-dtlesechposp03aa4epgp7v2sgqcgcdr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.brahmadivinegrace",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "311427704953-nuvqbtmqmenjdklmasd7lfqcpd9gak6s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.brahmadivinegrace",
+            "certificate_hash": "0ef3d417ea649962b80c24d204cbfb033cb519dc"
+          }
+        },
+        {
+          "client_id": "311427704953-ehs84mbsv6h7rmaafedp47ci0inggndk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJa_CLllPa_zpv6cnhszfpHvv6-dMy1Ic"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "311427704953-ehs84mbsv6h7rmaafedp47ci0inggndk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:311427704953:android:aecea773549ae92e0b0ca8",
         "android_client_info": {
           "package_name": "com.lmsapp"

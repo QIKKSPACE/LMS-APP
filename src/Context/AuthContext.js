@@ -7,7 +7,9 @@ import {
   logoutUser,
   updateUserProfile,
   getUserProfile,
-  onAuthChange
+  onAuthChange,
+  verifyPhoneNumber,
+  verifyOTP
 } from '../Services/authService';
 
 const AuthContext = createContext();
@@ -66,12 +68,17 @@ export const AuthProvider = ({ children }) => {
             }
           } else if (isMounted) {
             console.log('Creating basic user profile');
+            const email = firebaseUser.email || '';
+            const nameFromEmail = email.includes('@') ? email.split('@')[0] : '';
             const newProfile = {
               uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              name: firebaseUser.displayName || firebaseUser.email.split('@')[0],
-              mobileNumber: '',
+              email,
+              name: firebaseUser.displayName || nameFromEmail || 'User',
+              mobileNumber: firebaseUser.phoneNumber || '',
               address: '',
+              purchasedCourses: [],
+              EnrolledCourses: [],
+              phoneVerified: !!firebaseUser.phoneNumber,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
             };
@@ -202,6 +209,50 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  // NEW: Send OTP
+  const sendOTP = useCallback(async (phoneNumber) => {
+    console.log('Sending OTP to:', phoneNumber);
+    try {
+      setIsLoading(true);
+      const result = await verifyPhoneNumber(phoneNumber);
+      setIsLoading(false);
+      return result;
+    } catch (error) {
+      console.error('Send OTP exception:', error);
+      setIsLoading(false);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
+  // NEW: Login with OTP
+  const loginWithOTP = useCallback(async (otp, confirmation) => {
+    console.log('Verifying OTP...');
+    try {
+      setIsLoading(true);
+      const result = await verifyOTP(confirmation, otp);
+      
+      if (result.success) {
+        console.log('OTP Login successful');
+        setUser(result.user);
+        try {
+          await AsyncStorage.setItem(`user_${result.user.uid}`, JSON.stringify(result.user));
+        } catch (storageError) {
+          console.log('Failed to cache user data after OTP login');
+        }
+        setIsLoading(false);
+        return { success: true, user: result.user };
+      } else {
+        console.error('OTP login failed:', result.error);
+        setIsLoading(false);
+        return result;
+      }
+    } catch (error) {
+      console.error('OTP login exception:', error);
+      setIsLoading(false);
+      return { success: false, error: error.message };
+    }
+  }, []);
+
   // OPTIMIZATION: Memoize updateProfile function
   const updateProfile = useCallback(async (updatedData) => {
     if (!user || !user.uid) {
@@ -245,10 +296,12 @@ export const AuthProvider = ({ children }) => {
     signup,
     login,
     logout,
+    sendOTP,
+    loginWithOTP,
     updateProfile,
     isAuthenticated: !!user,
     authInitialized
-  }), [user, isLoading, signup, login, logout, updateProfile, authInitialized]);
+  }), [user, isLoading, signup, login, logout, sendOTP, loginWithOTP, updateProfile, authInitialized]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

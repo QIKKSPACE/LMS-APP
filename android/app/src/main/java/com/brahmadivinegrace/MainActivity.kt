@@ -1,4 +1,4 @@
-package com.lmsapp
+package com.brahmadivinegrace
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

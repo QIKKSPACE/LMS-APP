@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+// src/Screen/MyCourseDetails.js
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,633 +10,332 @@ import {
   Dimensions,
   StatusBar,
   Platform,
+  Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Video from 'react-native-video';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { getCourseById, toggleLectureCompletion as toggleLectureInFirestore } from '../Services/courseService';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
+import { getCourseById, toggleLectureCompletion as toggleLectureInFirestore, getCourseProgress } from '../Services/courseService';
 import { initializeCourseProgress, toggleLectureCompletion } from '../unities/progressTracker';
 import { checkCourseExpiry } from '../unities/courseExpiry';
 import { useAuth } from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
- 
-const { width, height } = Dimensions.get('window');
+import ProgressBar from '../Components/Progressbar';
+
+const { width } = Dimensions.get('window');
+
+function isPdfLecture(lecture) {
+  if (!lecture) return false;
+  if (lecture.lectureType === 'pdf') return true;
+  const u = lecture.url || lecture.videoUrl || '';
+  if (/\.pdf(\?|#|$)/i.test(u)) return true;
+  try {
+    return decodeURIComponent(u).toLowerCase().includes('.pdf');
+  } catch {
+    return false;
+  }
+}
 
 const MyCourseDetails = ({ route, navigation }) => {
-  const { courseId } = route.params;
+  const { courseId } = route.params || {};
   const { user } = useAuth();
+  
   const [course, setCourse] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedSection, setSelectedSection] = useState(null);
-  const [selectedLecture, setSelectedLecture] = useState(null);
-  const [expandedSections, setExpandedSections] = useState(new Set());
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [videoProgress, setVideoProgress] = useState(0);
-  const [hasMarkedComplete, setHasMarkedComplete] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [activeLecture, setActiveLecture] = useState(null);
+  const [activeSectionId, setActiveSectionId] = useState(null);
+  const [expandedChapters, setExpandedChapters] = useState({});
+  const [isPlaying, setIsPlaying] = useState(true); 
+  const [isBuffering, setIsBuffering] = useState(false);
+  
   const videoRef = useRef(null);
 
-  // Fetch course and initialize progress
   useEffect(() => {
-    const fetchCourse = async () => {
-      if (!courseId || !user) {
-        setIsLoading(false);
-        return;
-      }
-
+    const fetchData = async () => {
+      if (!user?.uid || !courseId) return;
       try {
-        console.log('📚 Fetching course details:', courseId);
-        setIsLoading(true);
-
-        const result = await getCourseById(courseId);
-
-        if (result.success && result.course) {
-          console.log('✅ Course fetched:', result.course);
-          console.log('📊 Sections found:', result.course.sections?.length || 0);
-
-          // Get saved progress from Firestore
-          const { getCourseProgress } = await import('../Services/courseService');
-          const progressResult = await getCourseProgress(user.uid, courseId);
-          
-          console.log('📈 Progress data:', progressResult);
-
-          // Initialize course with progress
+        setLoading(true);
+        const [courseResult, progressResult] = await Promise.all([
+          getCourseById(courseId),
+          getCourseProgress(user.uid, courseId)
+        ]);
+        if (courseResult.success && courseResult.course) {
+          const rawCourse = courseResult.course;
           const savedProgress = progressResult.success && progressResult.progress 
             ? progressResult.progress 
             : { progress: 0, completedLectures: [], status: 'IN_PROGRESS' };
-
-          const initializedCourse = initializeCourseProgress(result.course, savedProgress);
+          const initializedCourse = initializeCourseProgress(rawCourse, savedProgress);
           const courseWithExpiry = checkCourseExpiry(initializedCourse);
-          
-          console.log('✅ Course initialized with progress:', courseWithExpiry.progress + '%');
-          console.log('📝 Completed lectures:', savedProgress.completedLectures?.length || 0);
-          
           setCourse(courseWithExpiry);
-
-          // Set first section and lecture as default
-          if (courseWithExpiry.sections && courseWithExpiry.sections.length > 0) {
-            const firstSection = courseWithExpiry.sections[0];
-            setSelectedSection(firstSection);
-            if (firstSection.lecturesList && firstSection.lecturesList.length > 0) {
-              setSelectedLecture(firstSection.lecturesList[0]);
+          let firstPlayable = null;
+          let firstSecId = null;
+          if (courseWithExpiry.sections?.length > 0) {
+            for (const section of courseWithExpiry.sections) {
+              const lecture = section.lecturesList?.find(l => l.url || l.videoUrl);
+              if (lecture) {
+                firstPlayable = lecture;
+                firstSecId = section.id;
+                break;
+              }
             }
-            setExpandedSections(new Set([firstSection.id]));
+            if (!firstPlayable) {
+                firstSecId = courseWithExpiry.sections[0].id;
+                firstPlayable = courseWithExpiry.sections[0].lecturesList?.[0];
+            }
+            setExpandedChapters({ [firstSecId]: true });
+            setActiveLecture(firstPlayable);
+            setActiveSectionId(firstSecId);
           }
-        } else {
-          console.error('❌ Failed to fetch course:', result.error);
-          Toast.show({
-            type: 'error',
-            text1: 'Failed to load course',
-          });
         }
       } catch (error) {
-        console.error('❌ Error fetching course:', error);
-        Toast.show({
-          type: 'error',
-          text1: 'An error occurred while loading the course',
-        });
+        console.error('Fetch Error:', error);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     };
+    fetchData();
+  }, [courseId, user?.uid]);
 
-    fetchCourse();
-  }, [courseId, user]);
+  const togglePlayPause = () => setIsPlaying(!isPlaying);
 
-  const toggleSection = (sectionId) => {
-    const newExpanded = new Set(expandedSections);
-    if (newExpanded.has(sectionId)) {
-      newExpanded.delete(sectionId);
-    } else {
-      newExpanded.add(sectionId);
-    }
-    setExpandedSections(newExpanded);
-  };
-
-  const selectLecture = (section, lecture) => {
-    setSelectedSection(section);
-    setSelectedLecture(lecture);
+  const handleLectureClick = (section, lecture) => {
+    if (!lecture.url && !lecture.videoUrl) return;
+    setActiveLecture(lecture);
+    setActiveSectionId(section.id);
     setIsPlaying(true);
-    setVideoProgress(0);
-    setHasMarkedComplete(false);
-    setCurrentTime(0);
   };
 
-  // Auto-mark lecture as complete when 90% watched
-  const handleVideoProgress = async (data) => {
-    if (!selectedLecture || !selectedSection) return;
-    
-    const progress = (data.currentTime / data.seekableDuration) * 100;
-    setCurrentTime(data.currentTime);
-    setDuration(data.seekableDuration);
-    setVideoProgress(progress);
-    
-    // Auto-complete when 90% watched and not already marked complete
-    if (progress >= 90 && !selectedLecture.isCompleted && !hasMarkedComplete) {
-      console.log('🎯 Lecture 90% complete, auto-marking as done');
-      setHasMarkedComplete(true);
-      
-      await handleToggleLectureCompletion(selectedSection.id, selectedLecture.id);
-      
-      Toast.show({
-        type: 'success',
-        text1: '✅ Lecture completed!',
-      });
-    }
-  };
-
-  // Handle lecture completion toggle with proper Firestore sync
-  const handleToggleLectureCompletion = async (sectionId, lectureId) => {
-    if (!course || !user) return;
-    
+  const handleToggleCompletion = async (sectionId, lectureId) => {
+    if (!user?.uid || !course) return;
     try {
-      console.log('🔄 Toggling lecture completion:', { sectionId, lectureId });
-      
-      // Update local state immediately for UI responsiveness
       const updatedCourse = toggleLectureCompletion(course, sectionId, lectureId);
       setCourse(updatedCourse);
-      
-      console.log('✅ Local state updated, new progress:', updatedCourse.progress + '%');
-      
-      // Update Firestore in background
-      const result = await toggleLectureInFirestore(user.uid, courseId, sectionId, lectureId);
-      
-      if (result.success) {
-        console.log('✅ Firestore updated successfully');
-        Toast.show({
-          type: 'success',
-          text1: 'Progress saved!',
-        });
-      } else {
-        console.error('❌ Failed to update Firestore:', result.error);
-        Toast.show({
-          type: 'error',
-          text1: 'Failed to save progress',
-        });
-        // Revert local state if Firestore update failed
-        setCourse(course);
-      }
-      
-      // Update selected section and lecture if they match
-      const updatedSection = updatedCourse.sections.find(s => s.id === sectionId);
-      if (updatedSection) {
-        setSelectedSection(updatedSection);
-        const updatedLecture = updatedSection.lecturesList.find(l => l.id === lectureId);
-        if (updatedLecture) {
-          setSelectedLecture(updatedLecture);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error toggling lecture completion:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to update progress',
-      });
-    }
+      await toggleLectureInFirestore(user.uid, courseId, sectionId, lectureId);
+    } catch (e) {}
   };
 
-  const handleVideoEnd = async () => {
-    console.log('🎬 Video ended');
-    if (selectedLecture && !selectedLecture.isCompleted) {
-      await handleToggleLectureCompletion(selectedSection.id, selectedLecture.id);
-      Toast.show({
-        type: 'success',
-        text1: '✅ Lecture completed!',
-      });
-    }
-  };
-
-  const getTotalLectures = () => {
-    if (!course?.sections) return 0;
-    return course.sections.reduce((sum, s) => sum + (s.lecturesList?.length || 0), 0);
-  };
-
-  const getCompletedLectures = () => {
-    if (!course?.sections) return 0;
-    return course.sections.reduce((sum, s) => sum + (s.lecturesList?.filter(l => l.isCompleted).length || 0), 0);
-  };
-
-  // Loading state
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#111827" />
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#9333ea" />
-          <Text style={styles.loadingText}>Loading course...</Text>
-        </View>
-      </View>
-    );
-  }
-
-  // Error state
-  if (!course) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#111827" />
-        <View style={styles.centerContainer}>
-          <Text style={styles.errorText}>Course not found</Text>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // No sections state
-  if (!course.sections || course.sections.length === 0) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#1f2937" />
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Icon name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {course.courseTitle || course.title}
-          </Text>
-        </View>
-
-        <View style={styles.centerContainer}>
-          <View style={styles.warningIcon}>
-            <Text style={styles.warningEmoji}>⚠️</Text>
-          </View>
-          <Text style={styles.errorText}>Course content not available</Text>
-          <Text style={styles.errorSubtext}>
-            This course doesn't have any sections or lectures yet.
-          </Text>
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: '#dc2626' }]}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>Go Back</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  if (loading) return (
+    <View style={styles.centerContainer}>
+      <ActivityIndicator size="large" color="#DC2626" />
+    </View>
+  );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1f2937" />
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
       
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backIconButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {course.courseTitle || course.title}
-          </Text>
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{course?.courseTitle || course?.title}</Text>
+          <View style={styles.headerProgressRow}>
+            <View style={styles.headerProgressBar}><ProgressBar progress={course?.progress || 0} height={4} /></View>
+            <Text style={styles.headerProgressText}>{Math.round(course?.progress || 0)}%</Text>
+          </View>
         </View>
-        <Text style={styles.progressBadge}>
-          {course.progress || 0}%
-        </Text>
       </View>
 
-      {/* Video Player */}
-      <View style={styles.videoContainer}>
-        {selectedLecture && selectedLecture.url ? (
-          <Video
-            ref={videoRef}
-            source={{ uri: selectedLecture.url }}
-            style={styles.video}
-            controls={true}
-            resizeMode="contain"
-            onProgress={handleVideoProgress}
-            onEnd={handleVideoEnd}
-            paused={!isPlaying}
-            onLoad={(data) => setDuration(data.duration)}
-          />
-        ) : (
-          <View style={styles.videoPlaceholder}>
-            <TouchableOpacity
-              style={styles.playButton}
-              onPress={() => setIsPlaying(!isPlaying)}
-            >
-              <Icon
-                name={isPlaying ? 'pause' : 'play-arrow'}
-                size={40}
-                color="#fff"
-              />
-            </TouchableOpacity>
-            <Text style={styles.videoPlaceholderText}>
-              {selectedLecture ? selectedLecture.title : 'Select a lecture'}
-            </Text>
-            {selectedLecture && !selectedLecture.url && (
-              <Text style={styles.videoPlaceholderSubtext}>
-                Video URL not available
-              </Text>
-            )}
-          </View>
-        )}
-      </View>
-
-      {/* Course Content */}
-      <View style={styles.contentContainer}>
-        {/* Progress Bar */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Course Progress</Text>
-            <Text style={styles.progressValue}>{course.progress || 0}%</Text>
-          </View>
-          <View style={styles.progressBarContainer}>
-            <View
-              style={[
-                styles.progressBar,
-                { width: `${course.progress || 0}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressSubtext}>
-            {getCompletedLectures()} of {getTotalLectures()} lectures completed
-          </Text>
-        </View>
-
-        {/* Sections List */}
-        <ScrollView style={styles.sectionsList} showsVerticalScrollIndicator={false}>
-          {course.sections.map((section) => (
-            <View key={section.id} style={styles.sectionItem}>
-              <TouchableOpacity
-                style={styles.sectionHeader}
-                onPress={() => toggleSection(section.id)}
-              >
-                <View style={styles.sectionTitleContainer}>
-                  <Text style={styles.sectionTitle}>{section.title}</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    {section.lecturesList?.filter(l => l.isCompleted).length || 0} /{' '}
-                    {section.lecturesList?.length || 0} completed
-                  </Text>
-                </View>
-                <Icon
-                  name={expandedSections.has(section.id) ? 'expand-less' : 'expand-more'}
-                  size={24}
-                  color="#9ca3af"
+      <ScrollView stickyHeaderIndices={[0]} showsVerticalScrollIndicator={false}>
+        <View style={styles.videoContainer}>
+          {activeLecture ? (
+            isPdfLecture(activeLecture) ? (
+              <View style={styles.pdfPanel}>
+                <MaterialCommunityIcons name="file-pdf-box" size={56} color="#f59e0b" />
+                <Text style={styles.pdfHeadline}>PDF lesson</Text>
+                <Text style={styles.pdfSub} numberOfLines={2}>
+                  {activeLecture.title}
+                </Text>
+                <TouchableOpacity
+                  style={styles.openPdfBtn}
+                  onPress={() => {
+                    const uri = activeLecture.url || activeLecture.videoUrl;
+                    if (uri) Linking.openURL(uri).catch(() => {});
+                  }}
+                >
+                  <Text style={styles.openPdfBtnText}>Open PDF</Text>
+                </TouchableOpacity>
+                {!course?.sections
+                  ?.find((s) => s.id === activeSectionId)
+                  ?.lecturesList?.find((l) => l.id === activeLecture.id)?.isCompleted && (
+                  <TouchableOpacity
+                    style={styles.markPdfDoneBtn}
+                    onPress={() => handleToggleCompletion(activeSectionId, activeLecture.id)}
+                  >
+                    <Text style={styles.markPdfDoneText}>Mark as completed</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <View style={styles.videoWrapper}>
+                <Video
+                  ref={videoRef}
+                  source={{ uri: activeLecture.url || activeLecture.videoUrl }}
+                  style={styles.video}
+                  controls={true}
+                  resizeMode="contain"
+                  paused={!isPlaying}
+                  onBuffer={({ isBuffering }) => setIsBuffering(isBuffering)}
+                  onEnd={() => handleToggleCompletion(activeSectionId, activeLecture.id)}
+                  poster={course?.courseThumbnail}
+                  posterResizeMode="cover"
                 />
+                {isBuffering && (
+                  <View style={styles.bufferContainer}>
+                    <ActivityIndicator size="large" color="#DC2626" />
+                  </View>
+                )}
+              </View>
+            )
+          ) : (
+            <View style={styles.videoPlaceholder}>
+               <MaterialCommunityIcons name="video-off" size={64} color="rgba(255,255,255,0.2)" />
+               <Text style={styles.placeholderText}>No session data</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.lectureInfoCard}>
+           <Text style={styles.lectureTitleText}>{activeLecture?.title || 'Course Module'}</Text>
+           <View style={styles.metaRow}>
+              <View style={styles.metaBadge}>
+                <Icon name="access-time" size={14} color="#9ca3af" />
+                <Text style={styles.metaText}>{activeLecture?.duration || '0'} min</Text>
+              </View>
+              <View style={styles.orderLabel}><Text style={styles.orderLabelText}>LECTURE {activeLecture?.order || '1'}</Text></View>
+              {course?.sections?.find(s => s.id === activeSectionId)?.lecturesList?.find(l => l.id === activeLecture?.id)?.isCompleted && (
+                <View style={styles.completedBadge}>
+                  <Icon name="check-circle" size={14} color="#10b981" />
+                  <Text style={styles.completedBadgeText}>Success</Text>
+                </View>
+              )}
+           </View>
+        </View>
+
+        <View style={styles.tocSection}>
+          <Text style={styles.tocHeader}>REMAINING LESSONS</Text>
+          {course?.sections?.map((section) => (
+            <View key={section.id} style={styles.sectionContainer}>
+              <TouchableOpacity activeOpacity={0.8} onPress={() => setExpandedChapters(p => ({...p, [section.id]: !p[section.id]}))} style={styles.sectionHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitleText}>{section.title}</Text>
+                  <Text style={styles.sectionMetaText}>{section.lectures} Lectures • {section.duration}</Text>
+                </View>
+                <Icon name={expandedChapters[section.id] ? "expand-less" : "expand-more"} size={24} color="#6b7280" />
               </TouchableOpacity>
 
-              {expandedSections.has(section.id) && section.lecturesList && (
+              {expandedChapters[section.id] && (
                 <View style={styles.lecturesList}>
-                  {section.lecturesList.map((lecture) => (
+                  {section.lecturesList?.map((lecture) => (
                     <TouchableOpacity
                       key={lecture.id}
-                      style={[
-                        styles.lectureItem,
-                        selectedLecture?.id === lecture.id && styles.lectureItemActive,
-                      ]}
-                      onPress={() => selectLecture(section, lecture)}
+                      style={[styles.lectureItem, activeLecture?.id === lecture.id && styles.activeLectureItem]}
+                      onPress={() => handleLectureClick(section, lecture)}
                     >
-                      <TouchableOpacity
-                        onPress={() => handleToggleLectureCompletion(section.id, lecture.id)}
-                        style={styles.checkboxContainer}
-                      >
-                        <Icon
-                          name={lecture.isCompleted ? 'check-circle' : 'radio-button-unchecked'}
-                          size={18}
-                          color={lecture.isCompleted ? '#10b981' : '#6b7280'}
-                        />
-                      </TouchableOpacity>
-                      <Text
-                        style={[
-                          styles.lectureTitle,
-                          lecture.isCompleted && styles.lectureTitleCompleted,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {lecture.title}
-                      </Text>
-                      <Text style={styles.lectureDuration}>
-                        {lecture.duration || '5'} min
-                      </Text>
+                      <Icon
+                        name={
+                          lecture.isCompleted
+                            ? 'check-circle'
+                            : isPdfLecture(lecture)
+                              ? 'picture-as-pdf'
+                              : 'play-circle-outline'
+                        }
+                        size={20}
+                        color={
+                          lecture.isCompleted
+                            ? '#10b981'
+                            : activeLecture?.id === lecture.id
+                              ? isPdfLecture(lecture)
+                                ? '#f59e0b'
+                                : '#DC2626'
+                              : '#6b7280'
+                        }
+                      />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={[styles.lectureItemTitle, activeLecture?.id === lecture.id && styles.activeLectureTitle]}>{lecture.title}</Text>
+                        <Text style={styles.lectureItemMeta}>
+                          {isPdfLecture(lecture) ? 'PDF' : `${lecture.duration} min`}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
             </View>
           ))}
-        </ScrollView>
-      </View>
-    </View>
+        </View>
+      </ScrollView>
+      <Toast />
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#111827',
-  },
-  centerContainer: {
+  container: { flex: 1, backgroundColor: '#030712' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#030712' },
+  header: { height: 75, flexDirection: 'row', alignItems: 'center', backgroundColor: '#111827', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  headerIcon: { padding: 4, marginRight: 12 },
+  headerInfo: { flex: 1 },
+  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  headerProgressRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  headerProgressBar: { flex: 1, marginRight: 12 },
+  headerProgressText: { color: '#DC2626', fontSize: 12, fontWeight: '900' },
+  videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000' },
+  videoWrapper: { width: '100%', height: '100%', position: 'relative' },
+  video: { width: '100%', height: '100%' },
+  bufferContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
+  videoPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  placeholderText: { color: '#4b5563', marginTop: 12, fontSize: 14 },
+  lectureInfoCard: { padding: 20, backgroundColor: '#030712', borderBottomWidth: 1, borderBottomColor: '#1f2937' },
+  lectureTitleText: { color: '#fff', fontSize: 24, fontWeight: '900', marginBottom: 12 },
+  metaRow: { flexDirection: 'row', alignItems: 'center' },
+  metaBadge: { flexDirection: 'row', alignItems: 'center', marginRight: 16 },
+  metaText: { color: '#9ca3af', fontSize: 12, marginLeft: 4 },
+  orderLabel: { backgroundColor: '#1f2937', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  orderLabelText: { color: '#d1d5db', fontSize: 10, fontWeight: '900' },
+  completedBadge: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  completedBadgeText: { color: '#10b981', fontSize: 11, fontWeight: '800', marginLeft: 4 },
+  tocSection: { padding: 16 },
+  tocHeader: { color: '#4b5563', fontSize: 11, fontWeight: '900', letterSpacing: 1, marginBottom: 16 },
+  sectionContainer: { backgroundColor: '#111827', borderRadius: 16, marginBottom: 16, overflow: 'hidden' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+  sectionTitleText: { color: '#fff', fontSize: 16, fontWeight: '800', marginBottom: 2 },
+  sectionMetaText: { color: '#6b7280', fontSize: 11, fontWeight: '700' },
+  lecturesList: { backgroundColor: '#030712', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#1f2937' },
+  lectureItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderLeftWidth: 3, borderLeftColor: 'transparent' },
+  activeLectureItem: { backgroundColor: 'rgba(220, 38, 38, 0.05)', borderLeftColor: '#DC2626' },
+  lectureItemTitle: { color: '#9ca3af', fontSize: 15, fontWeight: '600' },
+  activeLectureTitle: { color: '#fff', fontWeight: '800' },
+  lectureItemMeta: { color: '#6b7280', fontSize: 11, marginTop: 2, fontWeight: '700' },
+  pdfPanel: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
+    backgroundColor: '#0a0a0a',
   },
-  loadingText: {
-    color: '#fff',
-    fontSize: 16,
-    marginTop: 16,
-    fontWeight: '500',
+  pdfHeadline: { color: '#fff', fontSize: 18, fontWeight: '900', marginTop: 12 },
+  pdfSub: { color: '#9ca3af', fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 },
+  openPdfBtn: {
+    marginTop: 20,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
   },
-  errorText: {
-    color: '#fff',
-    fontSize: 18,
-    marginBottom: 16,
-  },
-  errorSubtext: {
-    color: '#9ca3af',
-    fontSize: 14,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  warningIcon: {
-    width: 64,
-    height: 64,
-    backgroundColor: '#eab308',
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  warningEmoji: {
-    fontSize: 32,
-  },
-  backButton: {
-    backgroundColor: '#9333ea',
-    paddingHorizontal: 24,
+  openPdfBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  markPdfDoneBtn: {
+    marginTop: 14,
     paddingVertical: 12,
-    borderRadius: 8,
+    paddingHorizontal: 22,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#374151',
   },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1f2937',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-  },
-  backIconButton: {
-    marginRight: 12,
-  },
-  headerTitleContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  progressBadge: {
-    color: '#10b981',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  videoContainer: {
-    width: width,
-    height: height * 0.3,
-    backgroundColor: '#000',
-  },
-  video: {
-    width: '100%',
-    height: '100%',
-  },
-  videoPlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playButton: {
-    width: 80,
-    height: 80,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  videoPlaceholderText: {
-    color: '#fff',
-    fontSize: 18,
-    textAlign: 'center',
-  },
-  videoPlaceholderSubtext: {
-    color: '#9ca3af',
-    fontSize: 14,
-    marginTop: 8,
-  },
-  contentContainer: {
-    flex: 1,
-    backgroundColor: '#1f2937',
-  },
-  progressSection: {
-    padding: 16,
-    backgroundColor: '#111827',
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  progressLabel: {
-    color: '#9ca3af',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  progressValue: {
-    color: '#10b981',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  progressBarContainer: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#374151',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#10b981',
-    borderRadius: 4,
-  },
-  progressSubtext: {
-    color: '#6b7280',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  sectionsList: {
-    flex: 1,
-    padding: 16,
-  },
-  sectionItem: {
-    marginBottom: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#374151',
-    padding: 12,
-    borderRadius: 8,
-  },
-  sectionTitleContainer: {
-    flex: 1,
-  },
-  sectionTitle: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  sectionSubtitle: {
-    color: '#9ca3af',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  lecturesList: {
-    marginTop: 8,
-  },
-  lectureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1f2937',
-    padding: 8,
-    borderRadius: 4,
-    marginBottom: 4,
-  },
-  lectureItemActive: {
-    backgroundColor: '#374151',
-    borderLeftWidth: 4,
-    borderLeftColor: '#9333ea',
-  },
-  checkboxContainer: {
-    marginRight: 8,
-  },
-  lectureTitle: {
-    flex: 1,
-    color: '#d1d5db',
-    fontSize: 14,
-  },
-  lectureTitleCompleted: {
-    color: '#9ca3af',
-    textDecorationLine: 'line-through',
-  },
-  lectureDuration: {
-    color: '#6b7280',
-    fontSize: 12,
-    marginLeft: 8,
-  },
+  markPdfDoneText: { color: '#d1d5db', fontWeight: '700', fontSize: 14 },
 });
 
 export default MyCourseDetails;

@@ -10,11 +10,38 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Modal,
+  FlatList,
+  Dimensions,
 } from 'react-native';
 import { useAuth } from '../Context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+
+const { width, height } = Dimensions.get('window');
+
+const countries = [
+  { code: '+91', flag: '🇮🇳', name: 'India' },
+  { code: '+1', flag: '🇺🇸', name: 'USA' },
+  { code: '+971', flag: '🇦🇪', name: 'UAE' },
+  { code: '+44', flag: '🇬🇧', name: 'UK' },
+  { code: '+966', flag: '🇸🇦', name: 'Saudi Arabia' },
+  { code: '+974', flag: '🇶🇦', name: 'Qatar' },
+  { code: '+965', flag: '🇰🇼', name: 'Kuwait' },
+  { code: '+968', flag: '🇴🇲', name: 'Oman' },
+  { code: '+65', flag: '🇸🇬', name: 'Singapore' },
+  { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+1', flag: '🇨🇦', name: 'Canada' },
+  { code: '+49', flag: '🇩🇪', name: 'Germany' },
+  { code: '+33', flag: '🇫🇷', name: 'France' },
+  { code: '+81', flag: '🇯🇵', name: 'Japan' },
+  { code: '+92', flag: '🇵🇰', name: 'Pakistan' },
+  { code: '+880', flag: '🇧🇩', name: 'Bangladesh' },
+  { code: '+977', flag: '🇳🇵', name: 'Nepal' },
+  { code: '+94', flag: '🇱🇰', name: 'Sri Lanka' },
+];
 
 // Dynamic icon components
 const IconPerson = (props) => <Icon name="person" size={24} color="#dc2626" {...props} />;
@@ -25,13 +52,9 @@ const IconEdit = (props) => <Icon name="edit" size={20} color="#6b7280" {...prop
 const IconSave = (props) => <Icon name="save" size={20} color="#ffffff" {...props} />;
 const IconCancel = (props) => <Icon name="close" size={20} color="#374151" {...props} />;
 const IconSecurity = (props) => <Icon name="security" size={20} color="#dc2626" {...props} />;
-const IconSettings = (props) => <Icon name="settings" size={20} color="#6b7280" {...props} />;
-const IconNotifications = (props) => <Icon name="notifications" size={20} color="#6b7280" {...props} />;
-const IconLanguage = (props) => <Icon name="language" size={20} color="#6b7280" {...props} />;
-const IconTheme = (props) => <Icon name="palette" size={20} color="#6b7280" {...props} />;
 
 const ProfileScreen = () => {
-  const { user, updateProfile, logout } = useAuth();
+  const { user, updateProfile, logout, sendOTP, loginWithOTP } = useAuth();
   const navigation = useNavigation();
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState({
@@ -40,29 +63,139 @@ const ProfileScreen = () => {
     email: '',
     address: ''
   });
+  const [countryCode, setCountryCode] = useState('+91');
   const [isSaving, setIsSaving] = useState(false);
+  const [isCountryModalVisible, setIsCountryModalVisible] = useState(false);
+
+  // Phone verification states
+  const [isVerifyingPhone, setIsVerifyingPhone] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [confirmation, setConfirmation] = useState(null);
+  const [isVerifyingOTP, setIsVerifyingOTP] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   // Load user data when component mounts or user changes
   useEffect(() => {
     if (user) {
       console.log('Loading user data:', user);
+      
+      let initialCountryCode = '+91';
+      let initialMobileNumber = user.mobileNumber || '';
+      
+      // Try to extract country code from mobile number if it starts with +
+      if (initialMobileNumber.startsWith('+')) {
+        const country = countries.find(c => initialMobileNumber.startsWith(c.code));
+        if (country) {
+          initialCountryCode = country.code;
+          initialMobileNumber = initialMobileNumber.slice(country.code.length);
+        }
+      }
+
       setEditedData({
         name: user.name || '',
-        mobileNumber: user.mobileNumber || '',
+        mobileNumber: initialMobileNumber,
         email: user.email || '',
         address: user.address || ''
       });
+      setCountryCode(initialCountryCode);
+      setPhoneVerified(user.phoneVerified || false);
     }
   }, [user]);
 
   const handleEdit = () => {
     setIsEditing(true);
+    setOtpSent(false);
+    setOtp('');
+  };
+
+  const handleMobileNumberChange = (value) => {
+    const numericValue = value.replace(/[^0-9]/g, '');
+    const limitedValue = numericValue.slice(0, 15);
+
+    setEditedData(prev => ({
+      ...prev,
+      mobileNumber: limitedValue
+    }));
+
+    // Reset verification states when number changes
+    setOtpSent(false);
+    setOtp('');
+    setPhoneVerified(false);
+  };
+
+  const handleRequestOTP = async () => {
+    if (!editedData.mobileNumber || editedData.mobileNumber.length < 7) {
+      Toast.show({
+        type: 'error',
+        text1: 'Validation Error',
+        text2: 'Please enter a valid mobile number'
+      });
+      return;
+    }
+
+    const fullPhoneNumber = `${countryCode}${editedData.mobileNumber}`;
+
+    setIsVerifyingPhone(true);
+    try {
+      const result = await sendOTP(fullPhoneNumber);
+      if (result.success) {
+        setConfirmation(result.confirmation);
+        setOtpSent(true);
+        Toast.show({
+          type: 'success',
+          text1: 'OTP Sent',
+          text2: 'Please enter the code sent to your phone'
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: result.error || 'Failed to send OTP'
+        });
+      }
+    } catch (error) {
+      console.error('Error requesting OTP:', error);
+    } finally {
+      setIsVerifyingPhone(false);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otp || otp.length !== 6) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Please enter 6-digit OTP'
+      });
+      return;
+    }
+
+    setIsVerifyingOTP(true);
+    try {
+      const result = await loginWithOTP(otp, confirmation);
+      if (result.success) {
+        setPhoneVerified(true);
+        Toast.show({
+          type: 'success',
+          text1: 'Verified',
+          text2: 'Phone number verified successfully!'
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: result.error || 'Invalid OTP'
+        });
+      }
+    } catch (error) {
+      console.error('OTP verification error:', error);
+    } finally {
+      setIsVerifyingOTP(false);
+    }
   };
 
   const handleSave = async () => {
-    console.log('Attempting to save profile:', editedData);
-    
-    // Validation
     if (!editedData.name.trim()) {
       Toast.show({
         type: 'error',
@@ -72,22 +205,28 @@ const ProfileScreen = () => {
       return;
     }
 
-    setIsSaving(true);
+    const fullPhoneNumber = `${countryCode}${editedData.mobileNumber.trim()}`;
+    
+    if (fullPhoneNumber !== user.mobileNumber && !phoneVerified && editedData.mobileNumber.length > 0) {
+      Toast.show({
+        type: 'error',
+        text1: 'Verification Required',
+        text2: 'Please verify your new phone number with OTP first'
+      });
+      return;
+    }
 
+    setIsSaving(true);
     try {
-      // Only send fields that can be updated (exclude email and uid)
       const updates = {
         name: editedData.name.trim(),
-        mobileNumber: editedData.mobileNumber.trim(),
-        address: editedData.address.trim()
+        mobileNumber: fullPhoneNumber,
+        address: editedData.address.trim(),
+        phoneVerified: phoneVerified
       };
-
-      console.log('Sending updates:', updates);
 
       const result = await updateProfile(updates);
       
-      console.log('Update result:', result);
-
       if (result && result.success) {
         Toast.show({
           type: 'success',
@@ -97,7 +236,6 @@ const ProfileScreen = () => {
         setIsEditing(false);
       } else {
         const errorMessage = result?.error || 'Failed to update profile';
-        console.error('Update failed:', errorMessage);
         Toast.show({
           type: 'error',
           text1: 'Error',
@@ -117,16 +255,30 @@ const ProfileScreen = () => {
   };
 
   const handleCancel = () => {
-    // Reset to original user data
     if (user) {
+      let initialCountryCode = '+91';
+      let initialMobileNumber = user.mobileNumber || '';
+      
+      if (initialMobileNumber.startsWith('+')) {
+        const country = countries.find(c => initialMobileNumber.startsWith(c.code));
+        if (country) {
+          initialCountryCode = country.code;
+          initialMobileNumber = initialMobileNumber.slice(country.code.length);
+        }
+      }
+
       setEditedData({
         name: user.name || '',
-        mobileNumber: user.mobileNumber || '',
+        mobileNumber: initialMobileNumber,
         email: user.email || '',
         address: user.address || ''
       });
+      setCountryCode(initialCountryCode);
+      setPhoneVerified(user.phoneVerified || false);
     }
     setIsEditing(false);
+    setOtpSent(false);
+    setOtp('');
   };
 
   const handleLogout = async () => {
@@ -134,10 +286,7 @@ const ProfileScreen = () => {
       'Confirm Logout',
       'Are you sure you want to logout?',
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Logout',
           style: 'destructive',
@@ -149,14 +298,8 @@ const ProfileScreen = () => {
                 text1: 'Logged Out',
                 text2: 'You have been successfully logged out'
               });
-              // Navigation to AuthScreen will happen automatically due to auth state change
             } catch (error) {
               console.error('Logout error:', error);
-              Toast.show({
-                type: 'error',
-                text1: 'Logout Failed',
-                text2: 'Failed to logout. Please try again.'
-              });
             }
           },
         },
@@ -171,6 +314,26 @@ const ProfileScreen = () => {
     }));
   };
 
+  const renderCountryItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.countryItem}
+      onPress={() => {
+        setCountryCode(item.code);
+        setIsCountryModalVisible(false);
+        setPhoneVerified(false);
+      }}
+    >
+      <View style={styles.countryItemLeft}>
+        <Text style={styles.countryFlag}>{item.flag}</Text>
+        <Text style={styles.countryName}>{item.name}</Text>
+      </View>
+      <Text style={styles.countryCodeText}>{item.code}</Text>
+      {countryCode === item.code && (
+        <Ionicons name="checkmark-circle" size={20} color="#dc2626" style={{marginLeft: 10}} />
+      )}
+    </TouchableOpacity>
+  );
+
   if (!user) {
     return (
       <View style={styles.loadingContainer}>
@@ -182,7 +345,6 @@ const ProfileScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerContent}>
           <View>
@@ -206,8 +368,8 @@ const ProfileScreen = () => {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* Privacy Notice */}
         <View style={styles.privacyNotice}>
           <IconSecurity />
           <Text style={styles.privacyText}>
@@ -216,13 +378,11 @@ const ProfileScreen = () => {
           </Text>
         </View>
 
-        {/* Profile Card */}
         <View style={styles.profileCard}>
-          {/* Profile Avatar Section */}
           <View style={styles.avatarSection}>
             <View style={styles.avatarContainer}>
               <Image
-                source={require('../assets/logo.png')}
+                source={require('../assets/Logo1.jpeg')}
                 style={styles.avatar}
                 resizeMode="contain"
               />
@@ -241,9 +401,7 @@ const ProfileScreen = () => {
             )}
           </View>
 
-          {/* Profile Information */}
           <View style={styles.infoSection}>
-            {/* Name */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconContainer}>
                 <IconPerson />
@@ -266,7 +424,6 @@ const ProfileScreen = () => {
               </View>
             </View>
 
-            {/* Email */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconContainer}>
                 <IconEmail />
@@ -280,31 +437,104 @@ const ProfileScreen = () => {
               </View>
             </View>
 
-            {/* Mobile Number */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconContainer}>
                 <IconPhone />
               </View>
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>Mobile Number</Text>
+                <View style={styles.labelWithBadge}>
+                  <Text style={styles.infoLabel}>Mobile Number</Text>
+                  {phoneVerified && (
+                    <View style={styles.verifiedBadge}>
+                      <Ionicons name="checkmark-circle" size={12} color="#059669" />
+                      <Text style={styles.verifiedText}>Verified</Text>
+                    </View>
+                  )}
+                </View>
+
                 {isEditing ? (
-                  <TextInput
-                    value={editedData.mobileNumber}
-                    onChangeText={(value) => handleChange('mobileNumber', value)}
-                    style={styles.infoInput}
-                    placeholder="Enter your mobile number"
-                    placeholderTextColor="#9ca3af"
-                    keyboardType="phone-pad"
-                  />
+                  <View style={styles.phoneInputSection}>
+                    <View style={styles.phoneInputContainer}>
+                      <View style={styles.countryPicker}>
+                        <TextInput
+                          style={styles.countryCodeInput}
+                          value={countryCode}
+                          onChangeText={(text) => {
+                            if (text === '' || (text.startsWith('+') && !isNaN(text.slice(1)))) {
+                              setCountryCode(text.slice(0, 5));
+                              setPhoneVerified(false);
+                            }
+                          }}
+                          keyboardType="phone-pad"
+                        />
+                        <TouchableOpacity onPress={() => setIsCountryModalVisible(true)}>
+                          <Ionicons name="chevron-down" size={14} color="#9ca3af" />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        value={editedData.mobileNumber}
+                        onChangeText={handleMobileNumberChange}
+                        style={styles.mobileInput}
+                        placeholder="Mobile number"
+                        placeholderTextColor="#9ca3af"
+                        keyboardType="phone-pad"
+                        maxLength={15}
+                      />
+                    </View>
+
+                    {!phoneVerified && editedData.mobileNumber.length >= 7 && !otpSent && (
+                      <TouchableOpacity
+                        onPress={handleRequestOTP}
+                        disabled={isVerifyingPhone}
+                        style={styles.verificationButton}
+                      >
+                        {isVerifyingPhone ? (
+                          <ActivityIndicator size="small" color="#dc2626" />
+                        ) : (
+                          <Text style={styles.verificationButtonText}>Verify Number</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+
+                    {otpSent && !phoneVerified && (
+                      <View style={styles.otpSection}>
+                        <Text style={styles.otpHint}>OTP sent to {countryCode} {editedData.mobileNumber}</Text>
+                        <View style={styles.otpInputRow}>
+                          <TextInput
+                            value={otp}
+                            onChangeText={(val) => setOtp(val.replace(/[^0-9]/g, '').slice(0, 6))}
+                            style={styles.otpInput}
+                            placeholder="000000"
+                            placeholderTextColor="#9ca3af"
+                            keyboardType="number-pad"
+                            maxLength={6}
+                          />
+                          <TouchableOpacity
+                            onPress={handleVerifyOTP}
+                            disabled={isVerifyingOTP || otp.length !== 6}
+                            style={styles.otpVerifyButton}
+                          >
+                            {isVerifyingOTP ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <Text style={styles.otpVerifyButtonText}>Verify</Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                        <TouchableOpacity onPress={handleRequestOTP} style={styles.resendButton}>
+                          <Text style={styles.resendButtonText}>Resend OTP</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
                 ) : (
                   <Text style={styles.infoValue}>
-                    {editedData.mobileNumber || 'Not provided'}
+                    {user.mobileNumber || 'Not provided'}
                   </Text>
                 )}
               </View>
             </View>
 
-            {/* Address */}
             <View style={styles.infoCard}>
               <View style={styles.infoIconContainer}>
                 <IconLocation />
@@ -331,7 +561,6 @@ const ProfileScreen = () => {
             </View>
           </View>
 
-          {/* Edit Actions */}
           {isEditing && (
             <View style={styles.editActions}>
               <TouchableOpacity
@@ -364,7 +593,6 @@ const ProfileScreen = () => {
             </View>
           )}
 
-          {/* Logout Button - Always Visible */}
           <View style={styles.logoutSection}>
             <TouchableOpacity
               onPress={handleLogout}
@@ -378,7 +606,30 @@ const ProfileScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Toast Component */}
+      <Modal
+        visible={isCountryModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsCountryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Country</Text>
+              <TouchableOpacity onPress={() => setIsCountryModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={countries}
+              keyExtractor={(item) => item.code + item.name}
+              renderItem={renderCountryItem}
+              contentContainerStyle={styles.countryList}
+            />
+          </View>
+        </View>
+      </Modal>
+
       <Toast />
     </View>
   );
@@ -393,24 +644,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
     color: '#6b7280',
-    fontWeight: '500',
   },
   header: {
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 3,
-    paddingTop:34
+    paddingTop: Platform.OS === 'ios' ? 44 : 10,
   },
   headerContent: {
     flexDirection: 'row',
@@ -418,7 +662,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
   headerTitle: {
     fontSize: 24,
@@ -428,7 +671,6 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     color: '#6b7280',
-    marginTop: 2,
   },
   editButton: {
     flexDirection: 'row',
@@ -473,32 +715,22 @@ const styles = StyleSheet.create({
   profileCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    padding: 20,
+    elevation: 3,
   },
   avatarSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   avatarContainer: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: '#ffffff',
     borderWidth: 4,
     borderColor: '#dc2626',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
   },
   avatar: {
     width: 80,
@@ -513,11 +745,9 @@ const styles = StyleSheet.create({
   userNameInput: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#1f2937',
     borderBottomWidth: 2,
     borderBottomColor: '#dc2626',
     paddingVertical: 4,
-    paddingHorizontal: 12,
     minWidth: 200,
   },
   infoSection: {
@@ -534,27 +764,42 @@ const styles = StyleSheet.create({
     marginRight: 12,
     marginTop: 2,
   },
-  iconText: {
-    fontSize: 24,
-  },
   infoContent: {
     flex: 1,
+  },
+  labelWithBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    gap: 4,
+  },
+  verifiedText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#059669',
   },
   infoLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: '#6b7280',
-    marginBottom: 6,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   infoValue: {
     fontSize: 16,
     color: '#1f2937',
+    fontWeight: '500',
   },
   infoInput: {
     fontSize: 16,
-    color: '#1f2937',
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 8,
@@ -564,24 +809,97 @@ const styles = StyleSheet.create({
   },
   textArea: {
     minHeight: 80,
-    textAlignVertical: 'top',
   },
   infoHint: {
     fontSize: 11,
     color: '#6b7280',
     marginTop: 4,
-    fontStyle: 'italic',
+  },
+  phoneInputSection: {
+    gap: 10,
+  },
+  phoneInputContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  countryPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    width: 85,
+  },
+  countryCodeInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  mobileInput: {
+    flex: 1,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  verificationButton: {
+    paddingVertical: 4,
+  },
+  verificationButtonText: {
+    color: '#dc2626',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  otpSection: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    padding: 12,
+  },
+  otpHint: {
+    fontSize: 12,
+    color: '#059669',
+    marginBottom: 8,
+  },
+  otpInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  otpInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    textAlign: 'center',
+    letterSpacing: 4,
+    fontWeight: 'bold',
+  },
+  otpVerifyButton: {
+    backgroundColor: '#059669',
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  otpVerifyButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  resendButton: {
+    marginTop: 8,
+  },
+  resendButtonText: {
+    fontSize: 12,
+    color: '#2563eb',
   },
   editActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
-    marginTop: 24,
-    paddingTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
-  logoutSection: {
     marginTop: 24,
     paddingTop: 24,
     borderTopWidth: 1,
@@ -596,11 +914,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#ffffff',
   },
   cancelButtonText: {
     color: '#374151',
-    fontSize: 14,
     fontWeight: '600',
   },
   saveButton: {
@@ -614,25 +930,23 @@ const styles = StyleSheet.create({
   },
   saveButtonText: {
     color: '#ffffff',
-    fontSize: 14,
     fontWeight: '600',
+  },
+  logoutSection: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#dc2626',
-    paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   logoutButtonText: {
     color: '#dc2626',
@@ -641,6 +955,57 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: height * 0.7,
+    padding: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  countryList: {
+    paddingBottom: 20,
+  },
+  countryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  countryItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  countryFlag: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  countryName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  countryCodeText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#dc2626',
   },
 });
 

@@ -1,103 +1,123 @@
-import React, { useState, useEffect } from 'react';
+// src/Screen/LiveSession.js
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
-  Image,
-  Linking,
   StyleSheet,
   Dimensions,
-  Animated,
+  Image,
   RefreshControl,
+  Animated,
+  ActivityIndicator,
+  Linking,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import firestore from '@react-native-firebase/firestore';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { db } from '../firebase';
+import { useAuth } from '../Context/AuthContext';
+import LinearGradient from 'react-native-linear-gradient';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { getUserCourses } from '../Services/courseService';
 
 const { width } = Dimensions.get('window');
 
 const LiveSession = () => {
+  const { user } = useAuth();
   const [liveSessions, setLiveSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Animated values for live indicator
-  const pulseAnim = new Animated.Value(1);
+  const [error, setError] = useState(null);
+  
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
-    fetchLiveSessions();
-    startPulseAnimation();
-  }, []);
-
-  const startPulseAnimation = () => {
-    Animated.loop(
+    const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 0.5,
-          duration: 750,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 750,
-          useNativeDriver: true,
-        }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 1500, useNativeDriver: true }),
       ])
-    ).start();
-  };
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [pulseAnim]);
 
   const fetchLiveSessions = async () => {
+    if (!user) {
+      setLiveSessions([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
-      const snapshot = await db.collection('courses').get();
+      console.log('🔄 Syncing live sessions for user:', user.uid);
       
+      const result = await getUserCourses(user.uid);
+      
+      if (!result.success) {
+        setError(result.error || 'Could not load your courses');
+        setLiveSessions([]);
+        return;
+      }
+
       const allSessions = [];
-      
-      snapshot.docs.forEach(doc => {
-        const courseData = doc.data();
-        
-        if (courseData.liveLectures && Array.isArray(courseData.liveLectures)) {
-          courseData.liveLectures.forEach((lecture, index) => {
+      const courses = result.courses || [];
+
+      courses.forEach(course => {
+        if (course.liveLectures && Array.isArray(course.liveLectures)) {
+          course.liveLectures.forEach((lecture, index) => {
             allSessions.push({
-              id: `${doc.id}_${index}`,
-              courseId: doc.id,
-              courseTitle: courseData.courseTitle,
+              id: `${course.id}_${index}`,
+              courseId: course.id,
+              courseTitle: course.title || course.courseTitle || 'Untitled Course',
               link: lecture.link,
               status: lecture.status || 'upcoming',
               date: lecture.date,
               time: lecture.time,
-              topic: courseData.courseTitle || 'General Topic'
+              topic: lecture.topic || course.title || course.courseTitle || 'Live Session'
             });
           });
         }
       });
 
-      allSessions.sort((a, b) => {
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        return dateB - dateA;
-      });
+      // Sort by date (most recent first)
+      allSessions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       setLiveSessions(allSessions);
       setError(null);
     } catch (err) {
-      console.error('Error fetching live sessions:', err);
-      setError('Failed to load live sessions. Please try again.');
+      console.error('Fetch Error:', err);
+      setError('Failed to load sessions. Pull to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  useEffect(() => {
+    fetchLiveSessions();
+  }, [user?.uid]);
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchLiveSessions();
   };
 
+  const handleJoin = (link) => {
+    if (link) {
+      Linking.openURL(link).catch(() => alert("Could not open the session link."));
+    } else {
+      alert("Session link not available.");
+    }
+  };
+
   const formatDate = (dateString) => {
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return { day: '--', month: '---' };
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     return {
       month: months[date.getMonth()],
@@ -105,419 +125,155 @@ const LiveSession = () => {
     };
   };
 
-  const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
-      case 'live':
-        return '#EF4444';
-      case 'upcoming':
-        return '#3B82F6';
-      case 'completed':
-        return '#6B7280';
-      default:
-        return '#3B82F6';
-    }
-  };
-
-  const handleJoinSession = async (link) => {
-    try {
-      const supported = await Linking.canOpenURL(link);
-      if (supported) {
-        await Linking.openURL(link);
-      } else {
-        console.error("Don't know how to open this URL: " + link);
-      }
-    } catch (error) {
-      console.error('Error opening link:', error);
-    }
-  };
-
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#DC2626" />
-        <Text style={styles.loadingText}>Loading live sessions...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.centerContainer}>
-        <View style={styles.errorIcon}>
-          <Text style={styles.errorEmoji}>⚠️</Text>
-        </View>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={fetchLiveSessions}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
+        <Text style={styles.loadingText}>Syncing your sessions...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Live Sessions</Text>
-          <Image 
-            source={require('../assets/logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-        </View>
-        <Text style={styles.headerSubtitle}>
-          Join live sessions and interact with instructors in real-time
-        </Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Dynamic Brand Header */}
+      <View style={styles.brandHeader}>
+         <Image source={require('../assets/Logo1.jpeg')} style={styles.logo} resizeMode="contain" />
+         <Text style={styles.brandTitleText}>BRAHMA DIVINE GRACE</Text>
+         <Text style={styles.brandSubtitleText}>Interact with instructors in real-time</Text>
       </View>
 
-      {/* Sessions List */}
       <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#DC2626']}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DC2626']} />}
+        contentContainerStyle={styles.scrollList}
+        showsVerticalScrollIndicator={false}
       >
         {liveSessions.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyEmoji}>📹</Text>
-            </View>
-            <Text style={styles.emptyTitle}>No live sessions scheduled</Text>
-            <Text style={styles.emptySubtitle}>Check back later for upcoming sessions</Text>
+            <View style={styles.emptyCircle}><Text style={{ fontSize: 40 }}>📹</Text></View>
+            <Text style={styles.emptyTitle}>No sessions scheduled</Text>
+            <Text style={styles.emptySubtitle}>Check your enrolled courses for updates</Text>
           </View>
         ) : (
-          liveSessions.map((session, index) => {
-            const dateInfo = formatDate(session.date);
-            const statusColor = getStatusColor(session.status);
-            const isLive = session.status.toLowerCase() === 'live';
-            
-            return (
-              <View key={session.id} style={styles.sessionCard}>
-                {/* Top Section - Banner */}
-                <View style={styles.banner}>
-                  {/* Status Badge */}
-                  <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                    <Text style={styles.statusText}>{session.status.toUpperCase()}</Text>
-                  </View>
-
-                  {/* Live Indicator */}
-                  {isLive && (
-                    <Animated.View 
-                      style={[
-                        styles.liveIndicator,
-                        { opacity: pulseAnim }
-                      ]}
-                    >
-                      <View style={styles.liveDot} />
-                      <Text style={styles.liveText}>LIVE NOW</Text>
-                    </Animated.View>
-                  )}
-
-                  {/* Title */}
-                  <View style={styles.bannerContent}>
-                    <Text style={styles.sessionTitle}>Live Session</Text>
-                    <Text style={styles.sessionTopic}>{session.topic}</Text>
-                  </View>
-                </View>
-
-                {/* Bottom Section - Info */}
-                <View style={styles.infoSection}>
-                  {/* Date and Time */}
-                  <View style={styles.dateTimeContainer}>
-                    <View style={styles.dateBox}>
-                      <Text style={styles.dateMonth}>{dateInfo.month}</Text>
-                      <Text style={styles.dateDay}>{dateInfo.day}</Text>
+          liveSessions.map((session) => {
+             const { month, day } = formatDate(session.date);
+             const isLive = session.status.toLowerCase() === 'live';
+             
+             return (
+               <View key={session.id} style={styles.card}>
+                 {/* Top Section - Red Gradient Hero */}
+                 <LinearGradient 
+                   colors={['#DC2626', '#991B1B', '#000000']} 
+                   start={{ x: 0, y: 0 }} 
+                   end={{ x: 1, y: 1 }} 
+                   style={styles.cardHero}
+                 >
+                    <View style={styles.badgeRow}>
+                       {isLive && (
+                         <Animated.View style={[styles.liveBadge, { opacity: pulseAnim }]}>
+                           <View style={styles.liveDot} />
+                           <Text style={styles.liveBadgeText}>LIVE NOW</Text>
+                         </Animated.View>
+                       )}
+                       <View style={[styles.statusBadge, { backgroundColor: isLive ? '#EF4444' : (session.status?.toLowerCase() === 'completed' ? '#6B7280' : '#3B82F6') }]}>
+                         <Text style={styles.statusBadgeText}>{(session.status || 'UPCOMING').toUpperCase()}</Text>
+                       </View>
                     </View>
                     
-                    <View style={styles.timeContainer}>
-                      <Text style={styles.timeText}>🕐 {session.time}</Text>
-                      <Text style={styles.dateText}>{session.date}</Text>
+                    <View style={styles.heroContent}>
+                       <Text style={styles.heroPreTitle}>Live Session</Text>
+                       <Text style={styles.heroTitle} numberOfLines={2}>{session.topic}</Text>
                     </View>
-                  </View>
+                 </LinearGradient>
 
-                  {/* Course Title */}
-                  <View style={styles.courseContainer}>
-                    <Text style={styles.courseLabel}>From Course:</Text>
-                    <Text style={styles.courseTitle} numberOfLines={2}>
-                      {session.courseTitle}
-                    </Text>
-                  </View>
+                 {/* Bottom Section - White Info Card */}
+                 <View style={styles.cardInfo}>
+                    <View style={styles.dateTimeRow}>
+                       {/* Blue Calendar Box */}
+                       <View style={styles.calendarBox}>
+                          <Text style={styles.calendarMonth}>{month}</Text>
+                          <Text style={styles.calendarDay}>{day}</Text>
+                       </View>
+                       
+                       <View style={styles.timeInfo}>
+                          <View style={styles.timeRow}>
+                             <Icon name="access-time" size={16} color="#111827" />
+                             <Text style={styles.timeText}>{session.time}</Text>
+                          </View>
+                          <Text style={styles.dateText}>{session.date}</Text>
+                       </View>
+                    </View>
 
-                  {/* Join Button */}
-                  <TouchableOpacity
-                    style={[
-                      styles.joinButton,
-                      { backgroundColor: isLive ? '#DC2626' : '#2563EB' }
-                    ]}
-                    onPress={() => handleJoinSession(session.link)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.joinButtonText}>
-                      {isLive ? '🔴 Join Live Now' : '📹 Join Session'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
+                    <View style={styles.courseSource}>
+                       <Text style={styles.sourceLabel}>From Course:</Text>
+                       <Text style={styles.sourceName} numberOfLines={1}>{session.courseTitle}</Text>
+                    </View>
+
+                    <TouchableOpacity 
+                       onPress={() => handleJoin(session.link)}
+                       style={styles.joinBtn}
+                       activeOpacity={0.8}
+                    >
+                       <LinearGradient 
+                         colors={isLive ? ['#DC2626', '#B91C1C'] : ['#2563EB', '#1D4ED8']} 
+                         style={styles.btnGradient}
+                       >
+                         <Text style={styles.btnText}>
+                           {isLive ? '🔴 Join Live Now' : '📹 Join Session'}
+                         </Text>
+                       </LinearGradient>
+                    </TouchableOpacity>
+                 </View>
+               </View>
+             );
           })
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    backgroundColor: '#FFFFFF',
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  errorIcon: {
-    width: 64,
-    height: 64,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  errorEmoji: {
-    fontSize: 32,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#DC2626',
-    fontWeight: '500',
-    marginBottom: 16,
-  },
-  retryButton: {
-    backgroundColor: '#DC2626',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-  },
-  emptyIcon: {
-    width: 96,
-    height: 96,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 48,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#9CA3AF',
-  },
-  sessionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  banner: {
-    backgroundColor: '#7F1D1D',
-    padding: 24,
-    minHeight: 160,
-    position: 'relative',
-  },
-  statusBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  liveIndicator: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  liveDot: {
-    width: 12,
-    height: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  liveText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  bannerContent: {
-    marginTop: 40,
-  },
-  sessionTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  sessionTopic: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    opacity: 0.95,
-    fontWeight: '500',
-  },
-  infoSection: {
-    padding: 20,
-  },
-  dateTimeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dateBox: {
-    width: 56,
-    height: 56,
-    backgroundColor: '#3B82F6',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  dateMonth: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  dateDay: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-  },
-  timeContainer: {
-    flex: 1,
-  },
-  timeText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  dateText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  courseContainer: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-  },
-  courseLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  courseTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  joinButton: {
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  joinButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  loadingText: { marginTop: 12, color: '#4B5563', fontWeight: '600' },
+  brandHeader: { backgroundColor: '#fff', paddingVertical: 20, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  logo: { width: 56, height: 56, borderRadius: 28, marginBottom: 8, borderWidth: 2, borderColor: '#FEE2E2' },
+  brandTitleText: { fontSize: 20, fontWeight: '900', color: '#111827', letterSpacing: -0.5 },
+  brandSubtitleText: { fontSize: 11, color: '#6B7280', marginTop: 2, fontWeight: '500' },
+  scrollList: { padding: 20, paddingBottom: 100 },
+  card: { backgroundColor: '#fff', borderRadius: 20, marginBottom: 24, overflow: 'hidden', elevation: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 15 },
+  cardHero: { padding: 20, minHeight: 180, justifyContent: 'space-between' },
+  badgeRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff', marginRight: 6 },
+  liveBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  statusBadgeText: { color: '#fff', fontSize: 9, fontWeight: '900' },
+  heroContent: { marginTop: 'auto' },
+  heroPreTitle: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '700', textTransform: 'uppercase' },
+  heroTitle: { color: '#fff', fontSize: 24, fontWeight: '900', marginTop: 4 },
+  cardInfo: { padding: 20 },
+  dateTimeRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  calendarBox: { width: 56, height: 56, backgroundColor: '#3B82F6', borderRadius: 10, justifyContent: 'center', alignItems: 'center', elevation: 4 },
+  calendarMonth: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  calendarDay: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  timeInfo: { marginLeft: 16 },
+  timeRow: { flexDirection: 'row', alignItems: 'center' },
+  timeText: { color: '#111827', fontSize: 16, fontWeight: '800', marginLeft: 6 },
+  dateText: { color: '#6B7280', fontSize: 12, marginTop: 4, fontWeight: '500' },
+  courseSource: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6', paddingBottom: 16, marginBottom: 16 },
+  sourceLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '600' },
+  sourceName: { fontSize: 14, color: '#111827', fontWeight: '800', marginTop: 2 },
+  joinBtn: { height: 50, borderRadius: 12, overflow: 'hidden' },
+  btnGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 15, fontWeight: '900' },
+  emptyContainer: { alignItems: 'center', marginTop: 80 },
+  emptyCircle: { width: 100, height: 100, backgroundColor: '#F3F4F6', borderRadius: 50, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  emptySubtitle: { fontSize: 14, color: '#6B7280', marginTop: 4, textAlign: 'center' },
 });
 
 export default LiveSession;
