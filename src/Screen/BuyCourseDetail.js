@@ -1,5 +1,5 @@
 // src/Screen/BuyCourseDetail.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,17 +11,45 @@ import {
   StatusBar,
   Dimensions,
   Platform,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CommonActions } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import { useAuth } from '../Context/AuthContext';
 import { getCourseById } from '../Services/courseService';
-import { initIAP, requestPurchase, recordPurchaseInFirestore, setupIAPListeners, removeIAPListeners, endIAP } from '../Services/iapService';
+import {
+  initIAP,
+  requestPurchase,
+  recordPurchaseInFirestore,
+  setupIAPListeners,
+  removeIAPListeners,
+  endIAP,
+  playStoreProductIdFromCourseId,
+} from '../Services/iapService';
 import Toast from 'react-native-toast-message';
 
 const { width } = Dimensions.get('window');
+
+/** Leave buy flow and open Main tabs on My Courses (reliable vs nested navigate). */
+function goToMyCourses(navigation) {
+  navigation.dispatch(
+    CommonActions.reset({
+      index: 0,
+      routes: [
+        {
+          name: 'MainApp',
+          state: {
+            routes: [{ name: 'Mycourse' }],
+            index: 0,
+          },
+        },
+      ],
+    })
+  );
+}
 
 const BuyCourseDetailScreen = ({ route, navigation }) => {
   const { course: initialCourse, courseId } = route.params || {};
@@ -30,20 +58,56 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
   const [course, setCourse] = useState(initialCourse || null);
   const [loading, setLoading] = useState(!initialCourse);
   const [purchasing, setPurchasing] = useState(false);
+  const [purchaseSuccessVisible, setPurchaseSuccessVisible] = useState(false);
+
+  const courseRef = useRef(course);
+  courseRef.current = course;
+
+  const redirectAfterPurchaseRef = useRef(null);
 
   useEffect(() => {
-    // Initialize IAP when component mounts
     const setupIAP = async () => {
       await initIAP();
       setupIAPListeners(
         async (purchase) => {
           try {
             console.log('📦 Purchase processed by listener');
-            const result = await recordPurchaseInFirestore(purchase, course || initialCourse);
+            const currentCourse = courseRef.current;
+            if (!currentCourse?.id) {
+              console.error('❌ No course in context when purchase completed');
+              setPurchasing(false);
+              Toast.show({
+                type: 'error',
+                text1: 'Could not link purchase',
+                text2: 'Please reopen this course screen and use Restore if needed.',
+              });
+              return;
+            }
+
+            const expectedSku = playStoreProductIdFromCourseId(currentCourse.id);
+            if (purchase.productId && purchase.productId !== expectedSku) {
+              console.warn('📦 productId mismatch:', purchase.productId, 'expected', expectedSku);
+              setPurchasing(false);
+              Toast.show({
+                type: 'error',
+                text1: 'Purchase mismatch',
+                text2: 'This receipt does not match this course. Contact support if you were charged.',
+              });
+              return;
+            }
+
+            const result = await recordPurchaseInFirestore(purchase, currentCourse);
             if (result.success) {
               setPurchasing(false);
-              Toast.show({ type: 'success', text1: 'Purchase Successful!', text2: 'Enjoy your new course' });
-              setTimeout(() => navigation.navigate('MainApp', { screen: 'Mycourse' }), 1000);
+              setPurchaseSuccessVisible(true);
+              if (redirectAfterPurchaseRef.current) {
+                clearTimeout(redirectAfterPurchaseRef.current);
+              }
+              redirectAfterPurchaseRef.current = setTimeout(() => {
+                redirectAfterPurchaseRef.current = null;
+                setPurchaseSuccessVisible(false);
+                goToMyCourses(navigation);
+              }, 2200);
             }
           } catch (err) {
             console.error('❌ Firestore update error:', err);
@@ -62,12 +126,17 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
     };
     setupIAP();
 
-    // Clean up IAP connection on unmount
     return () => {
+      if (redirectAfterPurchaseRef.current) {
+        clearTimeout(redirectAfterPurchaseRef.current);
+        redirectAfterPurchaseRef.current = null;
+      }
       removeIAPListeners();
       endIAP();
     };
-  }, [course, initialCourse]);
+    // IAP must not tear down when `course` loads from Firestore (would drop the purchase event mid-flow).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- course via courseRef
+  }, []);
 
   useEffect(() => {
     const fetchCourse = async () => {
@@ -99,9 +168,9 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
     
     try {
       setPurchasing(true);
-      // Use course.id as SKU for Google Play Billing (IAP)
-      const sku = course.id;
-      console.log('🛒 Initiating requestPurchase for SKU:', sku);
+      // Play product id = sanitized/lowercased course id (same as admin sync)
+      const sku = playStoreProductIdFromCourseId(course.id);
+      console.log('🛒 Initiating requestPurchase for SKU:', sku, '(course.id:', course.id, ')');
       await requestPurchase(sku);
       // The listener in useEffect will handle the results
     } catch (error) {
@@ -151,7 +220,7 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
           <Icon name="arrow-back" size={24} color="#111827" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{displayTitle}</Text>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.navigate('MainApp', { screen: 'Mycourse' })}>
+        <TouchableOpacity style={styles.headerIcon} onPress={() => goToMyCourses(navigation)}>
           <MaterialCommunityIcons name="library-video" size={24} color="#DC2626" />
         </TouchableOpacity>
       </View>
@@ -215,7 +284,7 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
         ) : (
           <TouchableOpacity 
             style={styles.fullWidthBtn} 
-            onPress={() => navigation.navigate('MainApp', { screen: 'Mycourse' })}
+            onPress={() => goToMyCourses(navigation)}
           >
             <LinearGradient colors={['#10b981', '#059669']} style={styles.btnGradient}>
               <Text style={styles.btnText}>View in Your Library</Text>
@@ -223,6 +292,37 @@ const BuyCourseDetailScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal
+        visible={purchaseSuccessVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPurchaseSuccessVisible(false)}
+      >
+        <View style={styles.successModalBackdrop}>
+          <View style={styles.successModalCard}>
+            <Icon name="check-circle" size={56} color="#059669" />
+            <Text style={styles.successModalTitle}>Course purchased successfully</Text>
+            <Text style={styles.successModalSub}>
+              Your course is unlocked. Opening My Courses…
+            </Text>
+            <TouchableOpacity
+              style={styles.successModalBtn}
+              onPress={() => {
+                if (redirectAfterPurchaseRef.current) {
+                  clearTimeout(redirectAfterPurchaseRef.current);
+                  redirectAfterPurchaseRef.current = null;
+                }
+                setPurchaseSuccessVisible(false);
+                goToMyCourses(navigation);
+              }}
+            >
+              <Text style={styles.successModalBtnText}>Go to My Courses now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Toast />
     </SafeAreaView>
   );
@@ -264,6 +364,50 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   btnDisabled: { opacity: 0.7 },
   fullWidthBtn: { width: '100%', height: 56, borderRadius: 16, overflow: 'hidden' },
+  successModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  successModalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  successModalTitle: {
+    marginTop: 16,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  successModalSub: {
+    marginTop: 10,
+    fontSize: 15,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  successModalBtn: {
+    marginTop: 22,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  successModalBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });
 
 export default BuyCourseDetailScreen;

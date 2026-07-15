@@ -1,5 +1,5 @@
 // src/Screen/HomeScreen.js
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,9 @@ import {
   Animated,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import LinearGradient from 'react-native-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { getAllCourses } from '../Services/courseService';
+import { getUserProfile } from '../Services/authService';
 import CourseCard from '../Components/CourseCard';
 import { useAuth } from '../Context/AuthContext';
 
@@ -27,6 +28,8 @@ const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [courses, setCourses] = useState([]);
+  /** Fresh Firestore profile so Home reflects purchases without waiting on AuthContext cache */
+  const [profileSnapshot, setProfileSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,9 +39,12 @@ const HomeScreen = ({ navigation }) => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    fetchCourses();
+    setProfileSnapshot(null);
+  }, [user?.uid]);
+
+  useEffect(() => {
     startPulseAnimation();
-  }, [user]);
+  }, []);
 
   const startPulseAnimation = () => {
     Animated.loop(
@@ -49,15 +55,26 @@ const HomeScreen = ({ navigation }) => {
     ).start();
   };
 
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await getAllCourses();
-      if (result.success) {
-        setCourses(result.courses);
+      const uid = user?.uid;
+      const [coursesResult, profileResult] = await Promise.all([
+        getAllCourses(),
+        uid ? getUserProfile(uid) : Promise.resolve({ success: false }),
+      ]);
+
+      if (coursesResult.success) {
+        setCourses(coursesResult.courses);
         setError(null);
       } else {
-        setError(result.error || 'Failed to load courses');
+        setError(coursesResult.error || 'Failed to load courses');
+      }
+
+      if (profileResult.success && profileResult.user) {
+        setProfileSnapshot(profileResult.user);
+      } else if (!uid) {
+        setProfileSnapshot(null);
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -65,36 +82,44 @@ const HomeScreen = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    fetchCourses();
+  }, [fetchCourses]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchCourses();
+    }, [fetchCourses])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchCourses();
   };
 
-  // ✅ WEB LOGIC: Filter out owned courses
+  const ownershipSource = profileSnapshot ?? user;
+
+  /** Purchased / enrolled courses live in My Courses only — hide them from Home */
   const availableCourses = useMemo(() => {
     if (!courses || !Array.isArray(courses)) return [];
-    
-    // Get all owned IDs from purchasedCourses (strings) and EnrolledCourses (objects)
-    const userPurchasedCourseIds = user?.purchasedCourses || [];
-    const enrolledIds = (user?.EnrolledCourses || []).map(c => c.courseId).filter(Boolean);
-    const allOwnedIds = [...new Set([...userPurchasedCourseIds, ...enrolledIds])];
 
-    const filtered = courses.filter((course) => {
-      // Check ID match first
-      const isOwnedById = allOwnedIds.includes(course.id);
-      
-      // Fallback: Check title match (Web Logic)
-      const isOwnedByTitle = (user?.EnrolledCourses || []).some(
-        c => (c.courseTitle === (course.courseTitle || course.title) || c.title === (course.courseTitle || course.title))
+    const userPurchasedCourseIds = ownershipSource?.purchasedCourses || [];
+    const enrolled = ownershipSource?.EnrolledCourses || [];
+    const enrolledIds = enrolled.map((c) => c.courseId).filter(Boolean);
+    const allOwnedIds = new Set([...userPurchasedCourseIds, ...enrolledIds]);
+
+    return courses.filter((course) => {
+      const isOwnedById = allOwnedIds.has(course.id);
+      const isOwnedByTitle = enrolled.some(
+        (c) =>
+          c.courseTitle === (course.courseTitle || course.title) ||
+          c.title === (course.courseTitle || course.title)
       );
-
       return !(isOwnedById || isOwnedByTitle);
     });
-    
-    return filtered;
-  }, [courses, user]);
+  }, [courses, ownershipSource]);
 
   const filteredCourses = useMemo(() => {
     if (!searchQuery.trim()) return availableCourses;
@@ -132,7 +157,8 @@ const HomeScreen = ({ navigation }) => {
         <View style={styles.badge}>
           <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
           <Text style={styles.badgeText}>
-            {availableCourses.length} {availableCourses.length === 1 ? 'Course' : 'Courses'} Available
+            {availableCourses.length}{' '}
+            {availableCourses.length === 1 ? 'Course' : 'Courses'} Available
           </Text>
         </View>
 
@@ -222,7 +248,7 @@ const HomeScreen = ({ navigation }) => {
               progress={0}
               chapters={item.chapters || 0}
               isPurchased={false}
-              price={item.price}
+              price={item.discountPrice ?? item.coursePrice ?? item.price}
               showStatus={false}
               onCourseClick={handleCoursePress}
             />

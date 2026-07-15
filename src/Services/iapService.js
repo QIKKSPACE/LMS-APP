@@ -16,6 +16,17 @@ let purchaseUpdateSubscription;
 let purchaseErrorSubscription;
 
 /**
+ * Must match LMS-ADMIN Play sync: `sanitizeProductId` in courseProductSync
+ * (Firestore course doc id → Play one-time product id).
+ */
+export function playStoreProductIdFromCourseId(courseId) {
+    return String(courseId)
+        .toLowerCase()
+        .replace(/[^a-z0-9_.-]/g, '_')
+        .slice(0, 100);
+}
+
+/**
  * Initialize IAP connection
  */
 export const initIAP = async () => {
@@ -36,14 +47,32 @@ export const initIAP = async () => {
 export const setupIAPListeners = (onSuccess, onError) => {
     purchaseUpdateSubscription = purchaseUpdatedListener(async (purchase) => {
         console.log('📦 Purchase Updated:', purchase);
-        const receipt = purchase.transactionReceipt;
-        if (receipt) {
+
+        if (!purchase?.productId) {
+            console.warn('📦 Purchase update missing productId; ignoring');
+            return;
+        }
+
+        // Deferred / incomplete billing state — do not acknowledge yet
+        if (purchase.purchaseState === 'pending') {
+            console.log('📦 Purchase still pending; skip finish until completed');
+            return;
+        }
+
+        // v14 (Nitro): Android uses purchaseToken; legacy transactionReceipt is often absent.
+        // Gating on transactionReceipt alone never fired onSuccess on Android → stuck spinner.
+
+        try {
+            await finishTransaction({ purchase, isConsumable: false });
+        } catch (ackErr) {
+            console.warn('finishTransaction error', ackErr);
+        }
+
+        if (onSuccess) {
             try {
-                // Finish transaction (Acknowledge on Android)
-                await finishTransaction({ purchase, isConsumable: false });
-                if (onSuccess) onSuccess(purchase);
-            } catch (ackErr) {
-                console.warn('Ack error', ackErr);
+                await onSuccess(purchase);
+            } catch (e) {
+                console.error('IAP onSuccess error:', e);
             }
         }
     });

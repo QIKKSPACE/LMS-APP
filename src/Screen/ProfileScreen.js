@@ -13,6 +13,7 @@ import {
   Modal,
   FlatList,
   Dimensions,
+  Linking,
 } from 'react-native';
 import { useAuth } from '../Context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
@@ -52,6 +53,7 @@ const IconEdit = (props) => <Icon name="edit" size={20} color="#6b7280" {...prop
 const IconSave = (props) => <Icon name="save" size={20} color="#ffffff" {...props} />;
 const IconCancel = (props) => <Icon name="close" size={20} color="#374151" {...props} />;
 const IconSecurity = (props) => <Icon name="security" size={20} color="#dc2626" {...props} />;
+const IconWeb = (props) => <Icon name="language" size={24} color="#dc2626" {...props} />;
 
 const ProfileScreen = () => {
   const { user, updateProfile, logout, sendOTP, loginWithOTP } = useAuth();
@@ -312,6 +314,18 @@ const ProfileScreen = () => {
       ...prev,
       [name]: value
     }));
+  };
+
+  const handleOpenWebsite = async () => {
+    try {
+      await Linking.openURL('https://brahmadivinegrace.in/');
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Could not open website'
+      });
+    }
   };
 
   const renderCountryItem = ({ item }) => (
@@ -604,6 +618,23 @@ const ProfileScreen = () => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Separated Website Link Card */}
+        <TouchableOpacity 
+          style={styles.externalLinkCard} 
+          onPress={handleOpenWebsite}
+          activeOpacity={0.7}
+        >
+          <View style={styles.externalLinkIcon}>
+            <IconWeb size={28} />
+          </View>
+          <View style={styles.externalLinkContent}>
+            <Text style={styles.externalLinkLabel}>Check out our web version</Text>
+            <Text style={styles.externalLinkValue}>Visit brahmadivinegrace.in</Text>
+          </View>
+          <Icon name="open-in-new" size={24} color="#9ca3af" />
+        </TouchableOpacity>
+
       </ScrollView>
 
       <Modal
@@ -1006,6 +1037,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#dc2626',
+  },
+  externalLinkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 20,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+  externalLinkIcon: {
+    backgroundColor: '#fef2f2',
+    padding: 10,
+    borderRadius: 50,
+    marginRight: 16,
+  },
+  externalLinkContent: {
+    flex: 1,
+  },
+  externalLinkLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  externalLinkValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
   },
 });
 

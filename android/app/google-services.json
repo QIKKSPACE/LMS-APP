@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "311427704953-862e1a23519v9jr406gm1vko0gttngu3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.brahmadivinegrace",
+            "certificate_hash": "d99d4a828948f09e543e09c1dbc7a79997105c9b"
+          }
+        },
+        {
           "client_id": "311427704953-dtlesechposp03aa4epgp7v2sgqcgcdr.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

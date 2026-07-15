@@ -1,5 +1,5 @@
 // src/Screen/MyCourse.js
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import LinearGradient from 'react-native-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { getUserCourses } from '../Services/courseService';
 import { useAuth } from '../Context/AuthContext';
 import CourseCard from '../Components/CourseCard';
@@ -40,11 +41,7 @@ const MyCourse = ({ navigation }) => {
     { id: 'expired', label: 'Expired' },
   ];
 
-  useEffect(() => {
-    fetchUserCourses();
-  }, [user]);
-
-  const fetchUserCourses = async () => {
+  const fetchUserCourses = useCallback(async () => {
     if (!user?.uid) {
       setIsLoading(false);
       return;
@@ -86,7 +83,17 @@ const MyCourse = ({ navigation }) => {
       setIsLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchUserCourses();
+  }, [fetchUserCourses]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchUserCourses();
+    }, [fetchUserCourses])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);

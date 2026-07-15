@@ -11,6 +11,7 @@ import {
   verifyPhoneNumber,
   verifyOTP
 } from '../Services/authService';
+import { getFcmTokenAndSaveToUser } from '../Services/notificationService';
 
 const AuthContext = createContext();
 
@@ -66,6 +67,9 @@ export const AuthProvider = ({ children }) => {
             } catch (storageError) {
               console.log('Failed to cache user data');
             }
+            
+            // Get and save FCM Token
+            getFcmTokenAndSaveToUser(firebaseUser.uid);
           } else if (isMounted) {
             console.log('Creating basic user profile');
             const email = firebaseUser.email || '';
@@ -88,6 +92,9 @@ export const AuthProvider = ({ children }) => {
             } catch (storageError) {
               console.log('Failed to cache user data');
             }
+
+            // Get and save FCM Token
+            getFcmTokenAndSaveToUser(firebaseUser.uid);
           }
         } else {
           console.log('No user signed in');

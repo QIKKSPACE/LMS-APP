@@ -10,7 +10,6 @@ import {
   Dimensions,
   StatusBar,
   Platform,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Video from 'react-native-video';
@@ -24,6 +23,7 @@ import { checkCourseExpiry } from '../unities/courseExpiry';
 import { useAuth } from '../Context/AuthContext';
 import Toast from 'react-native-toast-message';
 import ProgressBar from '../Components/Progressbar';
+import PdfViewer from '../Components/PdfViewer';
 
 const { width } = Dimensions.get('window');
 
@@ -150,35 +150,15 @@ const VideoPlayerScreen = ({ route, navigation }) => {
       </View>
 
       <ScrollView stickyHeaderIndices={[0]} showsVerticalScrollIndicator={false}>
-        <View style={styles.videoContainer}>
+        <View
+          style={[
+            styles.videoContainer,
+            activeLecture && isPdfLecture(activeLecture) && styles.pdfVideoContainer,
+          ]}
+        >
           {activeLecture ? (
             isPdfLecture(activeLecture) ? (
-              <View style={styles.pdfPanel}>
-                <MaterialCommunityIcons name="file-pdf-box" size={56} color="#f59e0b" />
-                <Text style={styles.pdfHeadline}>PDF lesson</Text>
-                <Text style={styles.pdfSub} numberOfLines={2}>
-                  {activeLecture.title}
-                </Text>
-                <TouchableOpacity
-                  style={styles.openPdfBtn}
-                  onPress={() => {
-                    const uri = activeLecture.url || activeLecture.videoUrl;
-                    if (uri) Linking.openURL(uri).catch(() => {});
-                  }}
-                >
-                  <Text style={styles.openPdfBtnText}>Open PDF</Text>
-                </TouchableOpacity>
-                {!course?.sections
-                  ?.find((s) => s.id === activeSectionId)
-                  ?.lecturesList?.find((l) => l.id === activeLecture.id)?.isCompleted && (
-                  <TouchableOpacity
-                    style={styles.markPdfDoneBtn}
-                    onPress={() => handleToggleCompletion(activeSectionId, activeLecture.id)}
-                  >
-                    <Text style={styles.markPdfDoneText}>Mark as completed</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              <PdfViewer uri={activeLecture.url || activeLecture.videoUrl} style={styles.pdfViewer} />
             ) : (
               <View style={styles.videoWrapper}>
                 <Video
@@ -212,10 +192,17 @@ const VideoPlayerScreen = ({ route, navigation }) => {
         <View style={styles.lectureInfoCard}>
            <Text style={styles.lectureTitleText}>{activeLecture?.title || 'Learning Module'}</Text>
            <View style={styles.metaRow}>
+              {activeLecture && isPdfLecture(activeLecture) ? (
+                <View style={styles.metaBadge}>
+                  <Icon name="picture-as-pdf" size={14} color="#f59e0b" />
+                  <Text style={[styles.metaText, { color: '#f59e0b' }]}>PDF</Text>
+                </View>
+              ) : (
               <View style={styles.metaBadge}>
                 <Icon name="access-time" size={14} color="#9ca3af" />
                 <Text style={styles.metaText}>{activeLecture?.duration || '0'} min</Text>
               </View>
+              )}
               <View style={styles.orderLabel}><Text style={styles.orderLabelText}>CHAPTER {activeLecture?.order || '1'}</Text></View>
               {course?.sections?.find(s => s.id === activeSectionId)?.lecturesList?.find(l => l.id === activeLecture?.id)?.isCompleted && (
                 <View style={styles.completedBadge}>
@@ -224,6 +211,18 @@ const VideoPlayerScreen = ({ route, navigation }) => {
                 </View>
               )}
            </View>
+           {activeLecture &&
+            isPdfLecture(activeLecture) &&
+            !course?.sections
+              ?.find((s) => s.id === activeSectionId)
+              ?.lecturesList?.find((l) => l.id === activeLecture.id)?.isCompleted && (
+              <TouchableOpacity
+                style={styles.markPdfDoneBtn}
+                onPress={() => handleToggleCompletion(activeSectionId, activeLecture.id)}
+              >
+                <Text style={styles.markPdfDoneText}>Mark as completed</Text>
+              </TouchableOpacity>
+            )}
         </View>
 
         <View style={styles.tocSection}>
@@ -295,6 +294,8 @@ const styles = StyleSheet.create({
   headerProgressBar: { flex: 1, marginRight: 12 },
   headerProgressText: { color: '#DC2626', fontSize: 12, fontWeight: '900' },
   videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000' },
+  pdfVideoContainer: { aspectRatio: undefined, height: Dimensions.get('window').height * 0.55 },
+  pdfViewer: { flex: 1, width: '100%', height: '100%' },
   videoWrapper: { width: '100%', height: '100%', position: 'relative' },
   video: { width: '100%', height: '100%' },
   bufferContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
@@ -321,32 +322,15 @@ const styles = StyleSheet.create({
   lectureItemTitle: { color: '#9ca3af', fontSize: 15, fontWeight: '600' },
   activeLectureTitle: { color: '#fff', fontWeight: '800' },
   lectureItemMeta: { color: '#6b7280', fontSize: 11, marginTop: 2, fontWeight: '700' },
-  pdfPanel: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#0a0a0a',
-  },
-  pdfHeadline: { color: '#fff', fontSize: 18, fontWeight: '900', marginTop: 12 },
-  pdfSub: { color: '#9ca3af', fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 },
-  openPdfBtn: {
-    marginTop: 20,
-    backgroundColor: '#DC2626',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-  },
-  openPdfBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   markPdfDoneBtn: {
-    marginTop: 14,
+    marginTop: 16,
+    alignSelf: 'flex-start',
     paddingVertical: 12,
     paddingHorizontal: 22,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#374151',
+    backgroundColor: '#DC2626',
   },
-  markPdfDoneText: { color: '#d1d5db', fontWeight: '700', fontSize: 14 },
+  markPdfDoneText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });
 
 export default VideoPlayerScreen;

@@ -10,6 +10,7 @@ import TabNavigation from './Tabnavigation';
 import BuyCourseDetailScreen from '../Screen/BuyCourseDetail';
 import VideoPlayerScreen from '../Screen/VideoPlayerScreen';
 import MyCourseDetails from '../Screen/MyCourseDetails';
+import ProfileCompletionModal from '../Components/ProfileCompletionModal';
 
 const Stack = createNativeStackNavigator();
 
@@ -63,6 +64,7 @@ const AppNavigator = () => {
           <Stack.Screen name="Auth" component={AuthScreen} />
         )}
       </Stack.Navigator>
+      <ProfileCompletionModal />
     </NavigationContainer>
   );
 };
